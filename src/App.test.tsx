@@ -2170,4 +2170,66 @@ describe('App', () => {
         expect(screen.getByLabelText('Contenido')).toBeInTheDocument();
     });
 
+
+    it('muestra el contenido como editor enriquecido con barra de formato', async () => {
+        const currentSnapshot = buildSnapshot({
+            document: {
+                id: 1,
+                title: 'Tema 01 · Organización institucional',
+                createdAt: 1713600000000,
+                updatedAt: 1713600300000,
+            },
+            nodes: [buildRootNode(), buildChildNode()],
+            viewState: {
+                documentId: 1,
+                selectedNodeId: 102,
+                panX: 0,
+                panY: 0,
+                zoom: 1,
+                updatedAt: 1713600300000,
+            },
+            selectedNodeContent: {
+                nodeId: 102,
+                note: 'Nota existente',
+                body: '<p><strong>Contenido enriquecido</strong></p>',
+                createdAt: 1713600300000,
+                updatedAt: 1713600300000,
+            },
+        });
+
+        mockDocumentsIpc((cmd, payload) => {
+            switch (cmd) {
+                case 'list_documents':
+                    return documentsFixture;
+
+                case 'open_document':
+                    expect(payload).toEqual({ documentId: 1 });
+                    return currentSnapshot;
+
+                default:
+                    throw new Error(`Comando no esperado en test: ${cmd}`);
+            }
+        });
+
+        render(<App />);
+
+        await openDocumentFromSidebar(/Tema 01 · Organización institucional/i);
+
+        fireEvent.dblClick(await screen.findByTestId('tree-node-102-button'));
+
+        expect(await screen.findByLabelText('Contenido')).toBeInTheDocument();
+        expect(screen.getByRole('textbox', { name: 'Contenido' })).toBeInTheDocument();
+
+        expect(screen.getByLabelText('Negrita')).toBeInTheDocument();
+        expect(screen.getByLabelText('Cursiva')).toBeInTheDocument();
+        expect(screen.getByLabelText('Subrayado')).toBeInTheDocument();
+        expect(screen.getByLabelText('Lista con viñetas')).toBeInTheDocument();
+        expect(screen.getByLabelText('Lista numerada')).toBeInTheDocument();
+        expect(screen.getByLabelText('Alinear a la izquierda')).toBeInTheDocument();
+        expect(screen.getByLabelText('Centrar')).toBeInTheDocument();
+        expect(screen.getByLabelText('Alinear a la derecha')).toBeInTheDocument();
+
+        expect(screen.getByText('Contenido enriquecido')).toBeInTheDocument();
+    });
+
 });
