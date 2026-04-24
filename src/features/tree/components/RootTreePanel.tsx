@@ -20,6 +20,7 @@ import {
 } from '../lib/buildVisualTree';
 import { isRectFullyVisibleWithinContainer } from '../lib/selectionVisibility';
 import { RichContentEditor } from './RichContentEditor';
+import { TreeOutline } from './TreeOutline';
 
 interface RootTreePanelProps {
     snapshot: OpenDocumentSnapshotDto | null;
@@ -552,6 +553,7 @@ export function RootTreePanel({
     const [newChildTitle, setNewChildTitle] = useState('');
     const [isCanvasMaximized, setIsCanvasMaximized] = useState(true);
     const [isDetailsMaximized, setIsDetailsMaximized] = useState(false);
+    const [treeViewMode, setTreeViewMode] = useState<'canvas' | 'outline'>('canvas');
 
     const selectedContent = snapshot?.selectedNodeContent ?? null;
     const nodes = snapshot?.nodes ?? [];
@@ -1064,6 +1066,7 @@ export function RootTreePanel({
 
         setIsCanvasMaximized(true);
         setIsDetailsMaximized(false);
+        setTreeViewMode('canvas');
     }, [snapshot?.document.id]);
 
     const handleViewportMoveEnd = useCallback(
@@ -1194,6 +1197,25 @@ export function RootTreePanel({
                                     <div className="root-tree-panel__section-label">
                                         Árbol visual navegable
                                     </div>
+
+                                    <div className="tree-view-mode-switch" aria-label="Modo de vista del árbol">
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeViewMode === 'canvas' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeViewMode('canvas')}
+                                        >
+                                            Canvas
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeViewMode === 'outline' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeViewMode('outline')}
+                                        >
+                                            Esquema
+                                        </button>
+                                    </div>
+
                                     <button
                                         type="button"
                                         className="tree-canvas-card__maximize-button"
@@ -1206,44 +1228,56 @@ export function RootTreePanel({
                                     Arrastra el fondo para hacer pan. Usa la rueda o los controles para hacer zoom.
                                 </div>
 
-                                <div
-                                    ref={treeCanvasRef}
-                                    className="tree-canvas"
-                                    data-testid="tree-canvas"
-                                >
-                                    <ReactFlow
-                                        nodes={flowModel.flowNodes}
-                                        edges={flowModel.flowEdges}
-                                        nodeTypes={nodeTypes}
-                                        minZoom={0.2}
-                                        maxZoom={1.6}
-                                        nodesDraggable={false}
-                                        nodesConnectable={false}
-                                        elementsSelectable={false}
-                                        selectionOnDrag={false}
-                                        zoomOnDoubleClick={false}
-                                        panOnDrag
-                                        panOnScroll={false}
-                                        zoomOnScroll
-                                        zoomOnPinch
-                                        defaultViewport={initialViewport}
-                                        onMoveEnd={handleViewportMoveEnd}
-                                        onlyRenderVisibleElements
+                                {treeViewMode === 'canvas' ? (
+                                    <div
+                                        ref={treeCanvasRef}
+                                        className="tree-canvas"
+                                        data-testid="tree-canvas"
                                     >
-                                        <ViewportPersistenceBridge
-                                            documentId={snapshot.document.id}
-                                            initialViewport={initialViewport}
-                                        />
-                                        <SelectionVisibilityBridge
-                                            documentId={snapshot.document.id}
-                                            selectedNodeId={selectedNodeId}
-                                            layoutSignature={layoutSignature}
-                                            canvasContainerRef={treeCanvasRef}
-                                        />
-                                        <Background gap={24} size={1} />
-                                        <Controls showInteractive={false} position="bottom-left" />
-                                    </ReactFlow>
-                                </div>
+                                        <ReactFlow
+                                            nodes={flowModel.flowNodes}
+                                            edges={flowModel.flowEdges}
+                                            nodeTypes={nodeTypes}
+                                            minZoom={0.2}
+                                            maxZoom={1.6}
+                                            nodesDraggable={false}
+                                            nodesConnectable={false}
+                                            elementsSelectable={false}
+                                            selectionOnDrag={false}
+                                            zoomOnDoubleClick={false}
+                                            panOnDrag
+                                            panOnScroll={false}
+                                            zoomOnScroll
+                                            zoomOnPinch
+                                            defaultViewport={initialViewport}
+                                            onMoveEnd={handleViewportMoveEnd}
+                                            onlyRenderVisibleElements
+                                        >
+                                            <ViewportPersistenceBridge
+                                                documentId={snapshot.document.id}
+                                                initialViewport={initialViewport}
+                                            />
+                                            <SelectionVisibilityBridge
+                                                documentId={snapshot.document.id}
+                                                selectedNodeId={selectedNodeId}
+                                                layoutSignature={layoutSignature}
+                                                canvasContainerRef={treeCanvasRef}
+                                            />
+                                            <Background gap={24} size={1} />
+                                            <Controls showInteractive={false} position="bottom-left" />
+                                        </ReactFlow>
+                                    </div>
+                                ) : (
+                                    <TreeOutline
+                                        nodes={nodes}
+                                        rootNodeId={snapshot.rootNodeId}
+                                        selectedNodeId={selectedNodeId}
+                                        isBusy={treeBusy}
+                                        onSelectNode={handleSelectNodeFromCanvas}
+                                        onOpenDetailsWorkspace={handleOpenDetailsWorkspaceFromCanvas}
+                                        onToggleCollapse={handleToggleNodeCollapseFromCanvas}
+                                    />
+                                )}
                             </section>
                         </div>
                     </div>
