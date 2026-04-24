@@ -644,6 +644,35 @@ textarea {
   color: #ffffff;
 }
 
+.tree-vertical-placeholder {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 590px;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.05), transparent 26%),
+    linear-gradient(180deg, rgba(11, 18, 32, 0.98), rgba(15, 23, 42, 0.98));
+  color: var(--text);
+}
+
+.tree-vertical-placeholder__title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.tree-vertical-placeholder__text {
+  max-width: 520px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
 .tree-outline {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -822,6 +851,78 @@ textarea {
   font-size: 11px;
   font-weight: 800;
   text-align: center;
+}
+
+.tree-outline__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tree-outline__create-child-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(96, 165, 250, 0.26);
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #dbeafe;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tree-outline__create-child-button:hover {
+  border-color: rgba(96, 165, 250, 0.42);
+  background: rgba(59, 130, 246, 0.2);
+  color: #ffffff;
+}
+
+.tree-outline__create-child-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.tree-outline__delete-leaf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tree-outline__delete-leaf-button:hover {
+  border-color: rgba(239, 68, 68, 0.48);
+  background: rgba(239, 68, 68, 0.2);
+  color: #ffffff;
+}
+
+.tree-outline__delete-leaf-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.tree-outline__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
 }
 
 .tree-outline-empty {

@@ -553,7 +553,9 @@ export function RootTreePanel({
     const [newChildTitle, setNewChildTitle] = useState('');
     const [isCanvasMaximized, setIsCanvasMaximized] = useState(true);
     const [isDetailsMaximized, setIsDetailsMaximized] = useState(false);
-    const [treeViewMode, setTreeViewMode] = useState<'canvas' | 'outline'>('canvas');
+    const [treeViewMode, setTreeViewMode] = useState<'horizontal' | 'vertical' | 'outline'>(
+        'horizontal',
+    );
 
     const selectedContent = snapshot?.selectedNodeContent ?? null;
     const nodes = snapshot?.nodes ?? [];
@@ -1066,7 +1068,7 @@ export function RootTreePanel({
 
         setIsCanvasMaximized(true);
         setIsDetailsMaximized(false);
-        setTreeViewMode('canvas');
+        setTreeViewMode('horizontal');
     }, [snapshot?.document.id]);
 
     const handleViewportMoveEnd = useCallback(
@@ -1197,14 +1199,21 @@ export function RootTreePanel({
                                     <div className="root-tree-panel__section-label">
                                         Árbol visual navegable
                                     </div>
-
                                     <div className="tree-view-mode-switch" aria-label="Modo de vista del árbol">
                                         <button
                                             type="button"
-                                            className={`tree-view-mode-switch__button${treeViewMode === 'canvas' ? ' is-active' : ''}`}
-                                            onClick={() => setTreeViewMode('canvas')}
+                                            className={`tree-view-mode-switch__button${treeViewMode === 'horizontal' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeViewMode('horizontal')}
                                         >
-                                            Canvas
+                                            Horizontal
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeViewMode === 'vertical' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeViewMode('vertical')}
+                                        >
+                                            Vertical
                                         </button>
 
                                         <button
@@ -1228,7 +1237,7 @@ export function RootTreePanel({
                                     Arrastra el fondo para hacer pan. Usa la rueda o los controles para hacer zoom.
                                 </div>
 
-                                {treeViewMode === 'canvas' ? (
+                                {treeViewMode === 'horizontal' ? (
                                     <div
                                         ref={treeCanvasRef}
                                         className="tree-canvas"
@@ -1267,6 +1276,15 @@ export function RootTreePanel({
                                             <Controls showInteractive={false} position="bottom-left" />
                                         </ReactFlow>
                                     </div>
+                                ) : treeViewMode === 'vertical' ? (
+                                    <div className="tree-vertical-placeholder" data-testid="tree-vertical-placeholder">
+                                        <div className="tree-vertical-placeholder__title">
+                                            Árbol vertical
+                                        </div>
+                                        <div className="tree-vertical-placeholder__text">
+                                            Esta vista mostrará el árbol de arriba abajo, como alternativa visual para temarios grandes.
+                                        </div>
+                                    </div>
                                 ) : (
                                     <TreeOutline
                                         nodes={nodes}
@@ -1276,6 +1294,8 @@ export function RootTreePanel({
                                         onSelectNode={handleSelectNodeFromCanvas}
                                         onOpenDetailsWorkspace={handleOpenDetailsWorkspaceFromCanvas}
                                         onToggleCollapse={handleToggleNodeCollapseFromCanvas}
+                                        onCreateChild={handleQuickCreateChildFromCanvas}
+                                        onDeleteLeaf={handleQuickDeleteLeafFromCanvas}
                                     />
                                 )}
                             </section>

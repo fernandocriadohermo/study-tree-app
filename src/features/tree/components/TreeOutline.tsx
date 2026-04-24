@@ -8,6 +8,8 @@ interface TreeOutlineProps {
     onSelectNode: (nodeId: number) => Promise<void> | void;
     onOpenDetailsWorkspace: (nodeId: number) => Promise<void> | void;
     onToggleCollapse: (nodeId: number, isCollapsed: boolean) => Promise<void> | void;
+    onCreateChild: (parentNodeId: number, parentTitle: string) => Promise<void> | void;
+    onDeleteLeaf: (nodeId: number, nodeTitle: string) => Promise<void> | void;
 }
 
 interface VisibleOutlineNode {
@@ -91,6 +93,8 @@ export function TreeOutline({
     onSelectNode,
     onOpenDetailsWorkspace,
     onToggleCollapse,
+    onCreateChild,
+    onDeleteLeaf,
 }: TreeOutlineProps) {
     const rootNode = nodes.find((node) => node.id === rootNodeId) ?? null;
 
@@ -199,11 +203,55 @@ export function TreeOutline({
                                 </div>
                             </div>
 
-                            {hasChildren ? (
-                                <div className="tree-outline__children-count">
-                                    {(childrenByParentId.get(node.id) ?? []).length}
-                                </div>
-                            ) : null}
+                            <div className="tree-outline__actions">
+                                {hasChildren ? (
+                                    <div className="tree-outline__children-count">
+                                        {(childrenByParentId.get(node.id) ?? []).length}
+                                    </div>
+                                ) : null}
+
+                                <button
+                                    type="button"
+                                    className="tree-outline__create-child-button"
+                                    disabled={isBusy}
+                                    title={`Crear hijo en ${node.title}`}
+                                    aria-label={`Crear hijo en ${node.title}`}
+                                    onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+
+                                        if (isBusy) {
+                                            return;
+                                        }
+
+                                        void onCreateChild(node.id, node.title);
+                                    }}
+                                >
+                                    +
+                                </button>
+
+                                {!hasChildren && node.parentId !== null ? (
+                                    <button
+                                        type="button"
+                                        className="tree-outline__delete-leaf-button"
+                                        disabled={isBusy}
+                                        title={`Eliminar ${node.title}`}
+                                        aria-label={`Eliminar ${node.title}`}
+                                        onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+
+                                            if (isBusy) {
+                                                return;
+                                            }
+
+                                            void onDeleteLeaf(node.id, node.title);
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                ) : null}
+                            </div>
                         </div>
                     );
                 })}
