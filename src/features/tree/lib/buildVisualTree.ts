@@ -11,6 +11,7 @@ export type StudyTreeNodeData = Record<string, unknown> & {
     title: string;
     learningStatus: NodeDto['learningStatus'];
     kindLabel: string;
+    layoutDirection?: 'horizontal' | 'vertical';
     isActive: boolean;
     isContextual: boolean;
     isBusy: boolean;

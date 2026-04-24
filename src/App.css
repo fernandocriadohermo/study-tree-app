@@ -1048,6 +1048,10 @@ textarea {
   min-height: 720px;
 }
 
+.tree-canvas--vertical {
+  min-height: 590px;
+}
+
 .visual-tree-node-shell {
   position: relative;
   width: var(--visual-node-width);
@@ -1069,6 +1073,14 @@ textarea {
 
 .visual-tree-node-handle--source {
   right: -5px;
+}
+
+.visual-tree-node-handle--target-vertical {
+  top: -5px;
+}
+
+.visual-tree-node-handle--source-vertical {
+  bottom: -5px;
 }
 
 .visual-tree-node-button {

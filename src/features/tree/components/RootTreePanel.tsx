@@ -215,22 +215,30 @@ function isTreeBusy(
 function StudyTreeCanvasNode({
     data,
 }: NodeProps<StudyTreeFlowNode>) {
+    const isVerticalLayout = data.layoutDirection === 'vertical';
+
     return (
         <div className="visual-tree-node-shell nodrag nopan">
             <Handle
                 id="target"
                 type="target"
-                position={Position.Left}
+                position={isVerticalLayout ? Position.Top : Position.Left}
                 isConnectable={false}
-                className="visual-tree-node-handle visual-tree-node-handle--target"
+                className={`visual-tree-node-handle ${isVerticalLayout
+                    ? 'visual-tree-node-handle--target-vertical'
+                    : 'visual-tree-node-handle--target'
+                    }`}
             />
 
             <Handle
                 id="source"
                 type="source"
-                position={Position.Right}
+                position={isVerticalLayout ? Position.Bottom : Position.Right}
                 isConnectable={false}
-                className="visual-tree-node-handle visual-tree-node-handle--source"
+                className={`visual-tree-node-handle ${isVerticalLayout
+                    ? 'visual-tree-node-handle--source-vertical'
+                    : 'visual-tree-node-handle--source'
+                    }`}
             />
 
             {data.hasChildren ? (
@@ -522,6 +530,53 @@ function SelectionVisibilityBridge({
         selectedNodeId,
         setCenter,
     ]);
+
+    return null;
+}
+
+interface TreeViewFocusBridgeProps {
+    focusNodeId: number;
+    focusKey: string;
+    zoom?: number;
+    duration?: number;
+}
+
+function TreeViewFocusBridge({
+    focusNodeId,
+    focusKey,
+    zoom = 0.85,
+    duration = 180,
+}: TreeViewFocusBridgeProps) {
+    const { getNode, setCenter } = useReactFlow<StudyTreeFlowNode, Edge>();
+
+    useEffect(() => {
+        let firstFrameId = 0;
+        let secondFrameId = 0;
+
+        firstFrameId = window.requestAnimationFrame(() => {
+            secondFrameId = window.requestAnimationFrame(() => {
+                const flowNode = getNode(String(focusNodeId));
+
+                if (!flowNode) {
+                    return;
+                }
+
+                void setCenter(
+                    flowNode.position.x + VISUAL_NODE_WIDTH / 2,
+                    flowNode.position.y + VISUAL_NODE_HEIGHT / 2,
+                    {
+                        zoom,
+                        duration,
+                    },
+                );
+            });
+        });
+
+        return () => {
+            window.cancelAnimationFrame(firstFrameId);
+            window.cancelAnimationFrame(secondFrameId);
+        };
+    }, [focusKey, focusNodeId, getNode, setCenter, zoom, duration]);
 
     return null;
 }
@@ -1022,12 +1077,32 @@ export function RootTreePanel({
         handleQuickDeleteLeafFromCanvas,
         handleQuickSetLearningStatusFromCanvas,
     ]);
+
+    const verticalFlowModel = useMemo(() => {
+        return {
+            flowNodes: flowModel.flowNodes.map((node) => ({
+                ...node,
+                position: {
+                    x: node.position.y,
+                    y: node.position.x,
+                },
+                data: {
+                    ...node.data,
+                    layoutDirection: 'vertical' as const,
+                },
+            })),
+            flowEdges: flowModel.flowEdges,
+        };
+    }, [flowModel.flowEdges, flowModel.flowNodes]);
+
     const layoutSignature = useMemo(() => {
         const nodeIds = flowModel.flowNodes.map((node) => node.id).join('|');
         const edgeIds = flowModel.flowEdges.map((edge) => edge.id).join('|');
 
         return `${nodeIds}::${edgeIds}`;
     }, [flowModel.flowEdges, flowModel.flowNodes]);
+
+
 
     const initialViewport = useMemo<Viewport>(() => {
         if (!snapshot) {
@@ -1041,9 +1116,12 @@ export function RootTreePanel({
         };
     }, [snapshot]);
 
+
+
     const viewportSaveTimeoutRef = useRef<number | null>(null);
     const lastSavedViewportRef = useRef<Viewport | null>(null);
     const treeCanvasRef = useRef<HTMLDivElement | null>(null);
+    const treeVerticalRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         if (!snapshot) {
@@ -1115,6 +1193,12 @@ export function RootTreePanel({
             </section>
         );
     }
+
+    const treeViewFocusNodeId = selectedNodeId ?? snapshot.rootNodeId;
+
+    const horizontalTreeFocusKey = `${snapshot.document.id}:horizontal:${treeViewFocusNodeId}:${layoutSignature}`;
+
+    const verticalTreeFocusKey = `${snapshot.document.id}:vertical:${treeViewFocusNodeId}:${layoutSignature}`;
 
     let saveStatusText = 'Todo guardado.';
     if (isSelectingNodeId !== null) {
@@ -1272,18 +1356,60 @@ export function RootTreePanel({
                                                 layoutSignature={layoutSignature}
                                                 canvasContainerRef={treeCanvasRef}
                                             />
+                                            <TreeViewFocusBridge
+                                                focusNodeId={treeViewFocusNodeId}
+                                                focusKey={horizontalTreeFocusKey}
+                                                zoom={0.85}
+                                                duration={180}
+                                            />
                                             <Background gap={24} size={1} />
                                             <Controls showInteractive={false} position="bottom-left" />
                                         </ReactFlow>
                                     </div>
                                 ) : treeViewMode === 'vertical' ? (
-                                    <div className="tree-vertical-placeholder" data-testid="tree-vertical-placeholder">
-                                        <div className="tree-vertical-placeholder__title">
-                                            Árbol vertical
-                                        </div>
-                                        <div className="tree-vertical-placeholder__text">
-                                            Esta vista mostrará el árbol de arriba abajo, como alternativa visual para temarios grandes.
-                                        </div>
+                                    <div
+                                        ref={treeVerticalRef}
+                                        className="tree-canvas tree-canvas--vertical"
+                                        data-testid="tree-vertical"
+                                    >
+                                        <ReactFlow
+                                            nodes={verticalFlowModel.flowNodes}
+                                            edges={verticalFlowModel.flowEdges}
+                                            nodeTypes={nodeTypes}
+                                            minZoom={0.2}
+                                            maxZoom={1.6}
+                                            nodesDraggable={false}
+                                            nodesConnectable={false}
+                                            elementsSelectable={false}
+                                            selectionOnDrag={false}
+                                            zoomOnDoubleClick={false}
+                                            panOnDrag
+                                            panOnScroll={false}
+                                            zoomOnScroll
+                                            zoomOnPinch
+                                            fitView
+                                            fitViewOptions={{
+                                                padding: 0.18,
+                                                minZoom: 0.35,
+                                                maxZoom: 1,
+                                            }}
+                                            onlyRenderVisibleElements
+                                        >
+                                            <SelectionVisibilityBridge
+                                                documentId={snapshot.document.id}
+                                                selectedNodeId={selectedNodeId}
+                                                layoutSignature={layoutSignature}
+                                                canvasContainerRef={treeVerticalRef}
+                                            />
+                                            <TreeViewFocusBridge
+                                                focusNodeId={treeViewFocusNodeId}
+                                                focusKey={verticalTreeFocusKey}
+                                                zoom={0.75}
+                                                duration={180}
+                                            />
+                                            <Background gap={24} size={1} />
+                                            <Controls showInteractive={false} position="bottom-left" />
+                                        </ReactFlow>
                                     </div>
                                 ) : (
                                     <TreeOutline
