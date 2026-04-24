@@ -232,101 +232,107 @@ export function RichContentEditor({
     return (
         <div className="rich-content-editor">
             <div className="rich-content-editor__toolbar" aria-label="Formato del contenido">
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive('bold'))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().toggleBold().run()}
-                    disabled={disabled}
-                    title="Negrita"
-                    aria-label="Negrita"
-                >
-                    <strong>N</strong>
-                </button>
+                <div className="rich-content-editor__toolbar-group" aria-label="Estilo de texto">
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive('bold'))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().toggleBold().run()}
+                        disabled={disabled}
+                        title="Negrita"
+                        aria-label="Negrita"
+                    >
+                        <strong>N</strong>
+                    </button>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive('italic'))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().toggleItalic().run()}
-                    disabled={disabled}
-                    title="Cursiva"
-                    aria-label="Cursiva"
-                >
-                    <em>K</em>
-                </button>
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive('italic'))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().toggleItalic().run()}
+                        disabled={disabled}
+                        title="Cursiva"
+                        aria-label="Cursiva"
+                    >
+                        <em>K</em>
+                    </button>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive('underline'))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().toggleUnderline().run()}
-                    disabled={disabled}
-                    title="Subrayado"
-                    aria-label="Subrayado"
-                >
-                    <span className="rich-content-editor__toolbar-underlined">S</span>
-                </button>
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive('underline'))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().toggleUnderline().run()}
+                        disabled={disabled}
+                        title="Subrayado"
+                        aria-label="Subrayado"
+                    >
+                        <span className="rich-content-editor__toolbar-underlined">S</span>
+                    </button>
+                </div>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive('bulletList'))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().toggleBulletList().run()}
-                    disabled={disabled}
-                    title="Lista con viñetas"
-                    aria-label="Lista con viñetas"
-                >
-                    • Lista
-                </button>
+                <div className="rich-content-editor__toolbar-group" aria-label="Listas">
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive('bulletList'))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().toggleBulletList().run()}
+                        disabled={disabled}
+                        title="Lista con viñetas"
+                        aria-label="Lista con viñetas"
+                    >
+                        •
+                    </button>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive('orderedList'))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                    disabled={disabled}
-                    title="Lista numerada"
-                    aria-label="Lista numerada"
-                >
-                    1. Lista
-                </button>
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive('orderedList'))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                        disabled={disabled}
+                        title="Lista numerada"
+                        aria-label="Lista numerada"
+                    >
+                        1.
+                    </button>
+                </div>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive({ textAlign: 'left' }))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().setTextAlign('left').run()}
-                    disabled={disabled}
-                    title="Alinear a la izquierda"
-                    aria-label="Alinear a la izquierda"
-                >
-                    Izq.
-                </button>
+                <div className="rich-content-editor__toolbar-group" aria-label="Alineación">
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive({ textAlign: 'left' }))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().setTextAlign('left').run()}
+                        disabled={disabled}
+                        title="Alinear a la izquierda"
+                        aria-label="Alinear a la izquierda"
+                    >
+                        ⬅
+                    </button>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive({ textAlign: 'center' }))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().setTextAlign('center').run()}
-                    disabled={disabled}
-                    title="Centrar"
-                    aria-label="Centrar"
-                >
-                    Centro
-                </button>
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive({ textAlign: 'center' }))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().setTextAlign('center').run()}
+                        disabled={disabled}
+                        title="Centrar"
+                        aria-label="Centrar"
+                    >
+                        ↔
+                    </button>
 
-                <button
-                    type="button"
-                    className={getToolbarButtonClassName(editor.isActive({ textAlign: 'right' }))}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => editor.chain().focus().setTextAlign('right').run()}
-                    disabled={disabled}
-                    title="Alinear a la derecha"
-                    aria-label="Alinear a la derecha"
-                >
-                    Dcha.
-                </button>
+                    <button
+                        type="button"
+                        className={getToolbarButtonClassName(editor.isActive({ textAlign: 'right' }))}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => editor.chain().focus().setTextAlign('right').run()}
+                        disabled={disabled}
+                        title="Alinear a la derecha"
+                        aria-label="Alinear a la derecha"
+                    >
+                        ➡
+                    </button>
+                </div>
             </div>
 
             <div className="rich-content-editor__surface">
