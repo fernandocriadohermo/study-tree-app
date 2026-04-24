@@ -386,7 +386,7 @@ describe('App', () => {
             screen.getByRole('button', { name: 'Crear hijo' }),
         );
 
-        expect(await screen.findByText('Epígrafe 1')).toBeInTheDocument();
+        expect(await screen.findByTestId('tree-node-102-button')).toBeInTheDocument();
         expect(screen.getByText('Selección activa: nodo #102')).toBeInTheDocument();
 
         fireEvent.click(screen.getByTestId('tree-node-101-button'));
@@ -596,7 +596,7 @@ describe('App', () => {
             screen.getByRole('button', { name: 'Crear hijo' }),
         );
 
-        expect(await screen.findByText('Subepígrafe 1.1')).toBeInTheDocument();
+        expect(await screen.findByTestId('tree-node-103-button')).toBeInTheDocument();
         expect(screen.getByText('Selección activa: nodo #103')).toBeInTheDocument();
 
         fireEvent.click(screen.getByTestId('tree-node-101-button'));
@@ -1013,18 +1013,18 @@ describe('App', () => {
         await openDocumentFromSidebar(/Tema 01 · Organización institucional/i);
         await switchToMixedWorkspaceIfNeeded();
 
-        expect(await screen.findByText('Subepígrafe 1.1')).toBeInTheDocument();
+        expect(await screen.findByTestId('tree-node-103-button')).toBeInTheDocument();
 
         fireEvent.click(await screen.findByTestId('toggle-node-102-button'));
 
         await waitFor(() => {
-            expect(screen.queryByText('Subepígrafe 1.1')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('tree-node-103-button')).not.toBeInTheDocument();
         });
 
         fireEvent.click(await screen.findByTestId('toggle-node-102-button'));
 
         await waitFor(() => {
-            expect(screen.getByText('Subepígrafe 1.1')).toBeInTheDocument();
+            expect(screen.getByTestId('tree-node-103-button')).toBeInTheDocument();
         });
     });
 
@@ -1456,7 +1456,9 @@ describe('App', () => {
 
         await waitFor(() => {
             expect(screen.getByDisplayValue('Epígrafe 1 renombrado')).toBeInTheDocument();
-            expect(screen.getByText('Epígrafe 1 renombrado')).toBeInTheDocument();
+            expect(screen.getByTestId('tree-node-102-button')).toHaveTextContent(
+                'Epígrafe 1 renombrado',
+            );
         });
     });
 

@@ -415,9 +415,89 @@ textarea {
   min-height: 0;
 }
 
+.root-tree-panel__details-grid--focus .details-side-column {
+  grid-area: notes;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) fit-content(50%);
+  gap: 12px;
+  align-self: stretch;
+  overflow: hidden;
+}
+
 .root-tree-panel__details-grid--focus .note-card {
   height: 100%;
   min-height: 0;
+  background: rgba(17, 24, 39, 0.5);
+}
+
+.root-tree-panel__details-grid--focus .content-body-card,
+.root-tree-panel__details-grid--focus .note-card {
+  min-width: 0;
+  min-height: 0;
+}
+
+.details-side-column {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.node-children-card {
+  display: grid;
+  grid-template-rows: max-content minmax(0, 1fr);
+  min-height: 112px;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.node-children-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.node-children-list__button {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.62);
+  color: #dbeafe;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-children-list__button:hover {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(59, 130, 246, 0.13);
+}
+
+.node-children-list__button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.node-children-list__empty {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 .root-tree-panel__details-grid--focus .details-panel__topbar {
@@ -442,11 +522,7 @@ textarea {
   min-width: 0;
 }
 
-.root-tree-panel__details-grid--focus .note-card {
-  grid-area: notes;
-  min-width: 0;
-  align-self: stretch;
-}
+
 
 .root-tree-panel__details-grid--focus .content-editor__footer {
   grid-area: footer;
@@ -968,15 +1044,66 @@ textarea {
 }
 
 .study-hero-card__path {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
   line-height: 1.35;
   color: #87a0c7;
-  opacity: 0.86;
+  opacity: 0.9;
   letter-spacing: 0.01em;
+}
+
+.study-hero-card__path-item-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.study-hero-card__path-separator {
+  flex: 0 0 auto;
+  margin: 0 5px;
+  color: rgba(135, 160, 199, 0.72);
+}
+
+.study-hero-card__path-button {
+  min-width: 0;
+  max-width: 220px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9db8df;
+  font: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.study-hero-card__path-button:hover {
+  color: #dbeafe;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.study-hero-card__path-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  text-decoration: none;
+}
+
+.study-hero-card__path-current {
+  min-width: 0;
+  max-width: 260px;
+  color: #87a0c7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .study-hero-card__title-input {
@@ -1194,11 +1321,7 @@ textarea {
   scrollbar-gutter: stable;
 }
 
-.root-tree-panel__details-grid--focus .content-body-card,
-.root-tree-panel__details-grid--focus .note-card {
-  min-width: 0;
-  min-height: 0;
-}
+
 
 .root-tree-panel__details-grid--focus .content-body-card .content-editor__input--body,
 .root-tree-panel__details-grid--focus .note-card .content-editor__input--note,
@@ -1297,9 +1420,7 @@ textarea {
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.16);
 }
 
-.root-tree-panel__details-grid--focus .note-card {
-  background: rgba(17, 24, 39, 0.5);
-}
+
 
 .root-tree-panel__details-grid--focus .content-body-card {
   background: rgba(17, 24, 39, 0.44);

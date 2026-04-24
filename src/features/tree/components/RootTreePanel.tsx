@@ -165,6 +165,32 @@ function getNodePathTitles(
     return titles.reverse();
 }
 
+function getNodePathNodes(
+    node: NodeDto,
+    nodesById: Map<number, NodeDto>,
+): NodeDto[] {
+    const pathNodes: NodeDto[] = [];
+    let current: NodeDto | undefined = node;
+    let guard = 0;
+
+    while (current) {
+        pathNodes.push(current);
+
+        if (current.parentId === null) {
+            break;
+        }
+
+        current = nodesById.get(current.parentId);
+        guard += 1;
+
+        if (guard > 100) {
+            break;
+        }
+    }
+
+    return pathNodes.reverse();
+}
+
 function isTreeBusy(
     isSavingContent: boolean,
     isCreatingChild: boolean,
@@ -893,6 +919,38 @@ export function RootTreePanel({
         await onDeleteLeafNode(selectedNode.id);
     };
 
+    const handleOpenChildFromDetails = async (childNodeId: number) => {
+        if (treeBusy) {
+            return;
+        }
+
+        if (childNodeId === selectedNodeId) {
+            return;
+        }
+
+        if (hasPendingChanges) {
+            await persistPendingChanges();
+        }
+
+        await onSelectNode(childNodeId);
+    };
+
+    const handleOpenPathNodeFromDetails = async (pathNodeId: number) => {
+        if (treeBusy) {
+            return;
+        }
+
+        if (pathNodeId === selectedNodeId) {
+            return;
+        }
+
+        if (hasPendingChanges) {
+            await persistPendingChanges();
+        }
+
+        await onSelectNode(pathNodeId);
+    };
+
     const selectedNodeDepth = useMemo(() => {
         if (!selectedNode) {
             return 0;
@@ -907,6 +965,14 @@ export function RootTreePanel({
         }
 
         return getNodePathTitles(selectedNode, nodesById).join(' › ');
+    }, [selectedNode, nodesById]);
+
+    const selectedNodePathNodes = useMemo(() => {
+        if (!selectedNode) {
+            return [];
+        }
+
+        return getNodePathNodes(selectedNode, nodesById);
     }, [selectedNode, nodesById]);
 
     const selectedNodeChildren = selectedNode
@@ -1238,13 +1304,45 @@ export function RootTreePanel({
                                 Título del nodo
                             </label>
 
-                            <div
+                            <nav
                                 className="study-hero-card__path"
                                 title={selectedNodePath}
                                 data-testid="selected-node-path"
+                                aria-label="Ruta del nodo"
                             >
-                                {selectedNodePath}
-                            </div>
+                                {selectedNodePathNodes.map((pathNode, index) => {
+                                    const isCurrentNode = pathNode.id === selectedNode.id;
+
+                                    return (
+                                        <span
+                                            key={pathNode.id}
+                                            className="study-hero-card__path-item-wrap"
+                                        >
+                                            {index > 0 ? (
+                                                <span className="study-hero-card__path-separator">
+                                                    ›
+                                                </span>
+                                            ) : null}
+
+                                            {isCurrentNode ? (
+                                                <span className="study-hero-card__path-current">
+                                                    {pathNode.title}
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className="study-hero-card__path-button"
+                                                    onClick={() => void handleOpenPathNodeFromDetails(pathNode.id)}
+                                                    disabled={treeBusy}
+                                                    title={`Abrir ${pathNode.title}`}
+                                                >
+                                                    {pathNode.title}
+                                                </button>
+                                            )}
+                                        </span>
+                                    );
+                                })}
+                            </nav>
 
                             <input
                                 id="selected-node-title"
@@ -1328,20 +1426,47 @@ export function RootTreePanel({
                             </section>
                         ) : null}
 
-                        <section className="content-card note-card">
-                            <label className="content-card__label" htmlFor="selected-node-note">
-                                Nota
-                            </label>
+                        <div className="details-side-column">
+                            <section className="content-card note-card">
+                                <label className="content-card__label" htmlFor="selected-node-note">
+                                    Nota
+                                </label>
 
-                            <textarea
-                                id="selected-node-note"
-                                className="content-editor__input content-editor__input--note"
-                                value={draftNote}
-                                onChange={(event) => setDraftNote(event.target.value)}
-                                placeholder="Escribe una nota breve para este nodo"
-                                disabled={selectedContent === null || treeBusy}
-                            />
-                        </section>
+                                <textarea
+                                    id="selected-node-note"
+                                    className="content-editor__input content-editor__input--note"
+                                    value={draftNote}
+                                    onChange={(event) => setDraftNote(event.target.value)}
+                                    placeholder="Escribe una nota breve para este nodo"
+                                    disabled={selectedContent === null || treeBusy}
+                                />
+                            </section>
+
+                            <section className="content-card node-children-card">
+                                <div className="content-card__label">Hijos</div>
+
+                                {selectedNodeChildren.length > 0 ? (
+                                    <div className="node-children-list">
+                                        {selectedNodeChildren.map((childNode) => (
+                                            <button
+                                                key={childNode.id}
+                                                type="button"
+                                                className="node-children-list__button"
+                                                onClick={() => void handleOpenChildFromDetails(childNode.id)}
+                                                disabled={treeBusy}
+                                                title={childNode.title}
+                                            >
+                                                {childNode.title}
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="node-children-list__empty">
+                                        Este nodo no tiene hijos.
+                                    </div>
+                                )}
+                            </section>
+                        </div>
 
                         <section className="content-card content-card--body content-body-card">
                             <div className="content-card__label" id="selected-node-body-label">
