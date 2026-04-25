@@ -1079,21 +1079,38 @@ export function RootTreePanel({
     ]);
 
     const verticalFlowModel = useMemo(() => {
-        return {
-            flowNodes: flowModel.flowNodes.map((node) => ({
-                ...node,
-                position: {
-                    x: node.position.y,
-                    y: node.position.x,
-                },
-                data: {
-                    ...node.data,
-                    layoutDirection: 'vertical' as const,
-                },
-            })),
-            flowEdges: flowModel.flowEdges,
-        };
-    }, [flowModel.flowEdges, flowModel.flowNodes]);
+        if (!snapshot || selectedNodeId === null) {
+            return {
+                flowNodes: [] as StudyTreeFlowNode[],
+                flowEdges: [] as Edge[],
+            };
+        }
+
+        return buildVisualTree({
+            nodes,
+            rootNodeId: snapshot.rootNodeId,
+            selectedNodeId,
+            isBusy: treeBusy,
+            layoutDirection: 'vertical',
+            onSelectNode: handleSelectNodeFromCanvas,
+            onOpenDetailsWorkspace: handleOpenDetailsWorkspaceFromCanvas,
+            onToggleCollapse: handleToggleNodeCollapseFromCanvas,
+            onQuickCreateChild: handleQuickCreateChildFromCanvas,
+            onQuickDeleteLeaf: handleQuickDeleteLeafFromCanvas,
+            onQuickSetLearningStatus: handleQuickSetLearningStatusFromCanvas,
+        });
+    }, [
+        snapshot,
+        nodes,
+        selectedNodeId,
+        treeBusy,
+        handleSelectNodeFromCanvas,
+        handleOpenDetailsWorkspaceFromCanvas,
+        handleToggleNodeCollapseFromCanvas,
+        handleQuickCreateChildFromCanvas,
+        handleQuickDeleteLeafFromCanvas,
+        handleQuickSetLearningStatusFromCanvas,
+    ]);
 
     const layoutSignature = useMemo(() => {
         const nodeIds = flowModel.flowNodes.map((node) => node.id).join('|');
@@ -1101,6 +1118,13 @@ export function RootTreePanel({
 
         return `${nodeIds}::${edgeIds}`;
     }, [flowModel.flowEdges, flowModel.flowNodes]);
+
+    const verticalLayoutSignature = useMemo(() => {
+        const nodeIds = verticalFlowModel.flowNodes.map((node) => node.id).join('|');
+        const edgeIds = verticalFlowModel.flowEdges.map((edge) => edge.id).join('|');
+
+        return `${nodeIds}::${edgeIds}`;
+    }, [verticalFlowModel.flowEdges, verticalFlowModel.flowNodes]);
 
 
 
@@ -1198,7 +1222,7 @@ export function RootTreePanel({
 
     const horizontalTreeFocusKey = `${snapshot.document.id}:horizontal:${treeViewFocusNodeId}:${layoutSignature}`;
 
-    const verticalTreeFocusKey = `${snapshot.document.id}:vertical:${treeViewFocusNodeId}:${layoutSignature}`;
+    const verticalTreeFocusKey = `${snapshot.document.id}:vertical:${treeViewFocusNodeId}:${verticalLayoutSignature}`;
 
     let saveStatusText = 'Todo guardado.';
     if (isSelectingNodeId !== null) {
@@ -1331,8 +1355,8 @@ export function RootTreePanel({
                                             nodes={flowModel.flowNodes}
                                             edges={flowModel.flowEdges}
                                             nodeTypes={nodeTypes}
-                                            minZoom={0.2}
-                                            maxZoom={1.6}
+                                            minZoom={0.05}
+                                            maxZoom={2}
                                             nodesDraggable={false}
                                             nodesConnectable={false}
                                             elementsSelectable={false}
@@ -1359,7 +1383,7 @@ export function RootTreePanel({
                                             <TreeViewFocusBridge
                                                 focusNodeId={treeViewFocusNodeId}
                                                 focusKey={horizontalTreeFocusKey}
-                                                zoom={0.85}
+                                                zoom={0.55}
                                                 duration={180}
                                             />
                                             <Background gap={24} size={1} />
@@ -1376,8 +1400,8 @@ export function RootTreePanel({
                                             nodes={verticalFlowModel.flowNodes}
                                             edges={verticalFlowModel.flowEdges}
                                             nodeTypes={nodeTypes}
-                                            minZoom={0.2}
-                                            maxZoom={1.6}
+                                            minZoom={0.05}
+                                            maxZoom={2}
                                             nodesDraggable={false}
                                             nodesConnectable={false}
                                             elementsSelectable={false}
@@ -1390,7 +1414,7 @@ export function RootTreePanel({
                                             fitView
                                             fitViewOptions={{
                                                 padding: 0.18,
-                                                minZoom: 0.35,
+                                                minZoom: 0.05,
                                                 maxZoom: 1,
                                             }}
                                             onlyRenderVisibleElements
@@ -1404,7 +1428,7 @@ export function RootTreePanel({
                                             <TreeViewFocusBridge
                                                 focusNodeId={treeViewFocusNodeId}
                                                 focusKey={verticalTreeFocusKey}
-                                                zoom={0.75}
+                                                zoom={0.42}
                                                 duration={180}
                                             />
                                             <Background gap={24} size={1} />
