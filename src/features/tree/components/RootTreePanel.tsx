@@ -74,6 +74,10 @@ const LEARNING_STATUS_OPTIONS: Array<{
         { value: 'dominado', label: 'Dominado' },
     ];
 
+
+
+
+
 function QuickCreateChildIcon() {
     return (
         <svg viewBox="0 0 16 16" aria-hidden="true" className="quick-node-action__icon">
@@ -212,36 +216,166 @@ function isTreeBusy(
     );
 }
 
+type TreeVisibilityMode = 'free' | 'expanded' | 'collapsed' | 'focus';
+
+function getNodeAncestorIds(
+    node: NodeDto,
+    nodesById: Map<number, NodeDto>,
+): Set<number> {
+    const ancestorIds = new Set<number>();
+    let current: NodeDto | undefined = node;
+    let guard = 0;
+
+    while (current) {
+        ancestorIds.add(current.id);
+
+        if (current.parentId === null) {
+            break;
+        }
+
+        current = nodesById.get(current.parentId);
+        guard += 1;
+
+        if (guard > 1000) {
+            break;
+        }
+    }
+
+    return ancestorIds;
+}
+
+function getFocusVisibleNodeIds(
+    rootNodeId: number,
+    selectedNodeId: number,
+    nodesById: Map<number, NodeDto>,
+    childrenByParentId: Map<number, NodeDto[]>,
+): Set<number> {
+    const selectedNode = nodesById.get(selectedNodeId) ?? nodesById.get(rootNodeId);
+    const visibleNodeIds = new Set<number>();
+
+    if (!selectedNode) {
+        return visibleNodeIds;
+    }
+
+    const ancestorIds = getNodeAncestorIds(selectedNode, nodesById);
+
+    for (const ancestorId of ancestorIds) {
+        visibleNodeIds.add(ancestorId);
+    }
+
+    const selectedNodeChildren = childrenByParentId.get(selectedNode.id) ?? [];
+
+    for (const childNode of selectedNodeChildren) {
+        visibleNodeIds.add(childNode.id);
+    }
+
+    return visibleNodeIds;
+}
+
+function buildVisualModeNodes(
+    nodes: NodeDto[],
+    rootNodeId: number,
+    selectedNodeId: number,
+    treeVisibilityMode: TreeVisibilityMode,
+    nodesById: Map<number, NodeDto>,
+    childrenByParentId: Map<number, NodeDto[]>,
+): NodeDto[] {
+    if (treeVisibilityMode === 'free') {
+        return nodes;
+    }
+
+    if (treeVisibilityMode === 'expanded') {
+        return nodes.map((node) => ({
+            ...node,
+            isCollapsed: false,
+        }));
+    }
+
+    if (treeVisibilityMode === 'collapsed') {
+        return nodes.map((node) => ({
+            ...node,
+            isCollapsed: node.id !== rootNodeId,
+        }));
+    }
+
+    const selectedNode = nodesById.get(selectedNodeId) ?? nodesById.get(rootNodeId);
+
+    if (!selectedNode) {
+        return nodes;
+    }
+
+    const focusVisibleNodeIds = getFocusVisibleNodeIds(
+        rootNodeId,
+        selectedNode.id,
+        nodesById,
+        childrenByParentId,
+    );
+
+    const expandedNodeIds = getNodeAncestorIds(selectedNode, nodesById);
+    expandedNodeIds.add(selectedNode.id);
+
+    return nodes
+        .filter((node) => focusVisibleNodeIds.has(node.id))
+        .map((node) => ({
+            ...node,
+            isCollapsed: !expandedNodeIds.has(node.id),
+        }));
+}
+
 function StudyTreeCanvasNode({
     data,
 }: NodeProps<StudyTreeFlowNode>) {
     const isVerticalLayout = data.layoutDirection === 'vertical';
+    const isRadialLayout = data.layoutDirection === 'radial';
+    const isCompactLayout = data.isCompactLayout ?? isRadialLayout;
+    const isRootNode = data.kindLabel === 'Root';
+
+    const targetHandlePosition = isRadialLayout
+        ? Position.Top
+        : isVerticalLayout
+            ? Position.Top
+            : Position.Left;
+
+    const sourceHandlePosition = isRadialLayout
+        ? Position.Top
+        : isVerticalLayout
+            ? Position.Bottom
+            : Position.Right;
+
+    const showExternalNodeControls = !isRadialLayout;
+    const showInlineRadialControls = isRadialLayout && data.isActive;
 
     return (
-        <div className="visual-tree-node-shell nodrag nopan">
+        <div
+            className={`visual-tree-node-shell nodrag nopan${isRadialLayout ? ' visual-tree-node-shell--radial' : ''}${isCompactLayout ? ' visual-tree-node-shell--compact' : ''}${isRootNode ? ' visual-tree-node-shell--root' : ''}`}
+        >
             <Handle
                 id="target"
                 type="target"
-                position={isVerticalLayout ? Position.Top : Position.Left}
+                position={targetHandlePosition}
                 isConnectable={false}
-                className={`visual-tree-node-handle ${isVerticalLayout
-                    ? 'visual-tree-node-handle--target-vertical'
-                    : 'visual-tree-node-handle--target'
+                className={`visual-tree-node-handle ${isRadialLayout
+                    ? 'visual-tree-node-handle--radial-center'
+                    : isVerticalLayout
+                        ? 'visual-tree-node-handle--target-vertical'
+                        : 'visual-tree-node-handle--target'
                     }`}
             />
 
             <Handle
                 id="source"
                 type="source"
-                position={isVerticalLayout ? Position.Bottom : Position.Right}
+                position={sourceHandlePosition}
                 isConnectable={false}
-                className={`visual-tree-node-handle ${isVerticalLayout
-                    ? 'visual-tree-node-handle--source-vertical'
-                    : 'visual-tree-node-handle--source'
+                className={`visual-tree-node-handle ${isRadialLayout
+                    ? 'visual-tree-node-handle--radial-center'
+                    : isVerticalLayout
+                        ? 'visual-tree-node-handle--source-vertical'
+                        : 'visual-tree-node-handle--source'
                     }`}
             />
 
-            {data.hasChildren ? (
+            {showExternalNodeControls && data.hasChildren ? (
                 <button
                     type="button"
                     className={`root-tree-node__branch-toggle nodrag nopan${data.isCollapsed ? ' is-collapsed' : ' is-expanded'}`}
@@ -265,33 +399,11 @@ function StudyTreeCanvasNode({
                 </button>
             ) : null}
 
-            <div className="root-tree-node__quick-actions nodrag nopan">
-                <button
-                    type="button"
-                    className="root-tree-node__quick-action root-tree-node__quick-action--create nodrag nopan"
-                    onPointerDown={(event) => {
-                        event.stopPropagation();
-                    }}
-                    onDoubleClick={(event) => {
-                        event.stopPropagation();
-                    }}
-                    onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        void data.onQuickCreateChild(data.nodeId, data.title);
-                    }}
-                    disabled={data.isBusy}
-                    data-testid={`tree-node-${data.nodeId}-quick-create`}
-                    aria-label={`Crear hijo en ${data.title}`}
-                    title="Crear hijo"
-                >
-                    <QuickCreateChildIcon />
-                </button>
-
-                {data.canDelete ? (
+            {showExternalNodeControls ? (
+                <div className="root-tree-node__quick-actions nodrag nopan">
                     <button
                         type="button"
-                        className="root-tree-node__quick-action root-tree-node__quick-action--delete nodrag nopan"
+                        className="root-tree-node__quick-action root-tree-node__quick-action--create nodrag nopan"
                         onPointerDown={(event) => {
                             event.stopPropagation();
                         }}
@@ -301,22 +413,46 @@ function StudyTreeCanvasNode({
                         onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            void data.onQuickDeleteLeaf(data.nodeId, data.title);
+                            void data.onQuickCreateChild(data.nodeId, data.title);
                         }}
                         disabled={data.isBusy}
-                        data-testid={`tree-node-${data.nodeId}-quick-delete`}
-                        aria-label={`Eliminar ${data.title}`}
-                        title="Eliminar nodo hoja"
+                        data-testid={`tree-node-${data.nodeId}-quick-create`}
+                        aria-label={`Crear hijo en ${data.title}`}
+                        title="Crear hijo"
                     >
-                        <QuickDeleteLeafIcon />
+                        <QuickCreateChildIcon />
                     </button>
-                ) : null}
-            </div>
+
+                    {data.canDelete ? (
+                        <button
+                            type="button"
+                            className="root-tree-node__quick-action root-tree-node__quick-action--delete nodrag nopan"
+                            onPointerDown={(event) => {
+                                event.stopPropagation();
+                            }}
+                            onDoubleClick={(event) => {
+                                event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void data.onQuickDeleteLeaf(data.nodeId, data.title);
+                            }}
+                            disabled={data.isBusy}
+                            data-testid={`tree-node-${data.nodeId}-quick-delete`}
+                            aria-label={`Eliminar ${data.title}`}
+                            title="Eliminar nodo hoja"
+                        >
+                            <QuickDeleteLeafIcon />
+                        </button>
+                    ) : null}
+                </div>
+            ) : null}
 
             <div
                 role="button"
                 tabIndex={data.isBusy ? -1 : 0}
-                className={`visual-tree-node-button nodrag nopan${data.isActive ? ' is-active' : ''}${data.isContextual ? ' is-contextual' : ''}`}
+                className={`visual-tree-node-button nodrag nopan${isRadialLayout ? ' visual-tree-node-button--radial' : ''}${isRootNode ? ' visual-tree-node-button--root' : ''}${data.isActive ? ' is-active' : ''}${data.isContextual ? ' is-contextual' : ''}`}
                 onPointerDown={(event) => {
                     event.stopPropagation();
                 }}
@@ -356,12 +492,86 @@ function StudyTreeCanvasNode({
                 aria-disabled={data.isBusy ? 'true' : 'false'}
             >
                 <div
-                    className={`root-tree-node nodrag nopan root-tree-node--${data.learningStatus}${data.isActive ? ' is-selected' : ''}`}
+                    className={`root-tree-node nodrag nopan root-tree-node--${data.learningStatus}${isRadialLayout ? ' root-tree-node--radial' : ''}${isRootNode ? ' root-tree-node--root' : ''}${data.isActive ? ' is-selected' : ''}`}
                     data-testid={data.kindLabel === 'Root' ? 'root-tree-node' : undefined}
                     data-selected={data.isActive ? 'true' : 'false'}
                 >
+
                     <div className="root-tree-node__eyebrow">{data.kindLabel}</div>
                     <div className="root-tree-node__title">{data.title}</div>
+                    {showInlineRadialControls ? (
+                        <div className="root-tree-node__inline-controls nodrag nopan">
+                            {data.hasChildren ? (
+                                <button
+                                    type="button"
+                                    className={`root-tree-node__inline-branch-toggle${data.isCollapsed ? ' is-collapsed' : ' is-expanded'}`}
+                                    onPointerDown={(event) => {
+                                        event.stopPropagation();
+                                    }}
+                                    onDoubleClick={(event) => {
+                                        event.stopPropagation();
+                                    }}
+                                    onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void data.onToggleCollapse(data.nodeId, !data.isCollapsed);
+                                    }}
+                                    disabled={data.isBusy}
+                                    data-testid={`tree-node-${data.nodeId}-collapse-badge`}
+                                    aria-label={data.isCollapsed ? 'Expandir rama' : 'Colapsar rama'}
+                                    title={data.isCollapsed ? 'Expandir rama' : 'Colapsar rama'}
+                                >
+                                    {data.isCollapsed ? '+ rama' : '− rama'}
+                                </button>
+                            ) : null}
+
+                            <button
+                                type="button"
+                                className="root-tree-node__inline-action root-tree-node__inline-action--create"
+                                onPointerDown={(event) => {
+                                    event.stopPropagation();
+                                }}
+                                onDoubleClick={(event) => {
+                                    event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    void data.onQuickCreateChild(data.nodeId, data.title);
+                                }}
+                                disabled={data.isBusy}
+                                data-testid={`tree-node-${data.nodeId}-quick-create`}
+                                aria-label={`Crear hijo en ${data.title}`}
+                                title="Crear hijo"
+                            >
+                                <QuickCreateChildIcon />
+                            </button>
+
+                            {data.canDelete ? (
+                                <button
+                                    type="button"
+                                    className="root-tree-node__inline-action root-tree-node__inline-action--delete"
+                                    onPointerDown={(event) => {
+                                        event.stopPropagation();
+                                    }}
+                                    onDoubleClick={(event) => {
+                                        event.stopPropagation();
+                                    }}
+                                    onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void data.onQuickDeleteLeaf(data.nodeId, data.title);
+                                    }}
+                                    disabled={data.isBusy}
+                                    data-testid={`tree-node-${data.nodeId}-quick-delete`}
+                                    aria-label={`Eliminar ${data.title}`}
+                                    title="Eliminar nodo hoja"
+                                >
+                                    <QuickDeleteLeafIcon />
+                                </button>
+                            ) : null}
+                        </div>
+                    ) : null}
 
                     {data.isActive && !data.hasChildren ? (
                         <div className="root-tree-node__quick-status-wrap nodrag nopan">
@@ -608,9 +818,8 @@ export function RootTreePanel({
     const [newChildTitle, setNewChildTitle] = useState('');
     const [isCanvasMaximized, setIsCanvasMaximized] = useState(true);
     const [isDetailsMaximized, setIsDetailsMaximized] = useState(false);
-    const [treeViewMode, setTreeViewMode] = useState<'horizontal' | 'vertical' | 'outline'>(
-        'horizontal',
-    );
+    const [treeViewMode, setTreeViewMode] = useState<'horizontal' | 'vertical' | 'radial' | 'outline'>('horizontal');
+    const [treeVisibilityMode, setTreeVisibilityMode] = useState<TreeVisibilityMode>('free');
 
     const selectedContent = snapshot?.selectedNodeContent ?? null;
     const nodes = snapshot?.nodes ?? [];
@@ -785,6 +994,7 @@ export function RootTreePanel({
             await persistPendingChanges();
         }
 
+        setTreeVisibilityMode('free');
         await onSetNodeCollapsed(nodeId, isCollapsed);
     };
 
@@ -860,9 +1070,9 @@ export function RootTreePanel({
             await persistPendingChanges();
         }
 
+        setTreeVisibilityMode('free');
         await onSetNodeCollapsed(selectedNode.id, !selectedNode.isCollapsed);
     };
-
     const handleLearningStatusChange = async (
         nextLearningStatus: NodeDto['learningStatus'],
     ) => {
@@ -1045,6 +1255,28 @@ export function RootTreePanel({
     const canToggleSelectedNodeCollapse =
         !!selectedNode && !treeBusy && selectedNodeChildren.length > 0;
 
+    const visualModeNodes = useMemo(() => {
+        if (!snapshot || selectedNodeId === null) {
+            return nodes;
+        }
+
+        return buildVisualModeNodes(
+            nodes,
+            snapshot.rootNodeId,
+            selectedNodeId,
+            treeVisibilityMode,
+            nodesById,
+            childrenByParentId,
+        );
+    }, [
+        snapshot,
+        nodes,
+        selectedNodeId,
+        treeVisibilityMode,
+        nodesById,
+        childrenByParentId,
+    ]);
+
     const flowModel = useMemo(() => {
         if (!snapshot || selectedNodeId === null) {
             return {
@@ -1054,7 +1286,7 @@ export function RootTreePanel({
         }
 
         return buildVisualTree({
-            nodes,
+            nodes: visualModeNodes,
             rootNodeId: snapshot.rootNodeId,
             selectedNodeId,
             isBusy: treeBusy,
@@ -1067,7 +1299,7 @@ export function RootTreePanel({
         });
     }, [
         snapshot,
-        nodes,
+        visualModeNodes,
         selectedNodeId,
         treeBusy,
         handleSelectNodeFromCanvas,
@@ -1087,7 +1319,7 @@ export function RootTreePanel({
         }
 
         return buildVisualTree({
-            nodes,
+            nodes: visualModeNodes,
             rootNodeId: snapshot.rootNodeId,
             selectedNodeId,
             isBusy: treeBusy,
@@ -1101,7 +1333,41 @@ export function RootTreePanel({
         });
     }, [
         snapshot,
-        nodes,
+        visualModeNodes,
+        selectedNodeId,
+        treeBusy,
+        handleSelectNodeFromCanvas,
+        handleOpenDetailsWorkspaceFromCanvas,
+        handleToggleNodeCollapseFromCanvas,
+        handleQuickCreateChildFromCanvas,
+        handleQuickDeleteLeafFromCanvas,
+        handleQuickSetLearningStatusFromCanvas,
+    ]);
+
+    const radialFlowModel = useMemo(() => {
+        if (!snapshot || selectedNodeId === null) {
+            return {
+                flowNodes: [] as StudyTreeFlowNode[],
+                flowEdges: [] as Edge[],
+            };
+        }
+
+        return buildVisualTree({
+            nodes: visualModeNodes,
+            rootNodeId: snapshot.rootNodeId,
+            selectedNodeId,
+            isBusy: treeBusy,
+            layoutDirection: 'radial',
+            onSelectNode: handleSelectNodeFromCanvas,
+            onOpenDetailsWorkspace: handleOpenDetailsWorkspaceFromCanvas,
+            onToggleCollapse: handleToggleNodeCollapseFromCanvas,
+            onQuickCreateChild: handleQuickCreateChildFromCanvas,
+            onQuickDeleteLeaf: handleQuickDeleteLeafFromCanvas,
+            onQuickSetLearningStatus: handleQuickSetLearningStatusFromCanvas,
+        });
+    }, [
+        snapshot,
+        visualModeNodes,
         selectedNodeId,
         treeBusy,
         handleSelectNodeFromCanvas,
@@ -1126,7 +1392,12 @@ export function RootTreePanel({
         return `${nodeIds}::${edgeIds}`;
     }, [verticalFlowModel.flowEdges, verticalFlowModel.flowNodes]);
 
+    const radialLayoutSignature = useMemo(() => {
+        const nodeIds = radialFlowModel.flowNodes.map((node) => node.id).join('|');
+        const edgeIds = radialFlowModel.flowEdges.map((edge) => edge.id).join('|');
 
+        return `${nodeIds}::${edgeIds}`;
+    }, [radialFlowModel.flowEdges, radialFlowModel.flowNodes]);
 
     const initialViewport = useMemo<Viewport>(() => {
         if (!snapshot) {
@@ -1146,6 +1417,7 @@ export function RootTreePanel({
     const lastSavedViewportRef = useRef<Viewport | null>(null);
     const treeCanvasRef = useRef<HTMLDivElement | null>(null);
     const treeVerticalRef = useRef<HTMLDivElement | null>(null);
+    const treeRadialRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         if (!snapshot) {
@@ -1171,6 +1443,7 @@ export function RootTreePanel({
         setIsCanvasMaximized(true);
         setIsDetailsMaximized(false);
         setTreeViewMode('horizontal');
+        setTreeVisibilityMode('free');
     }, [snapshot?.document.id]);
 
     const handleViewportMoveEnd = useCallback(
@@ -1223,6 +1496,8 @@ export function RootTreePanel({
     const horizontalTreeFocusKey = `${snapshot.document.id}:horizontal:${treeViewFocusNodeId}:${layoutSignature}`;
 
     const verticalTreeFocusKey = `${snapshot.document.id}:vertical:${treeViewFocusNodeId}:${verticalLayoutSignature}`;
+
+
 
     let saveStatusText = 'Todo guardado.';
     if (isSelectingNodeId !== null) {
@@ -1326,10 +1601,56 @@ export function RootTreePanel({
 
                                         <button
                                             type="button"
+                                            className={`tree-view-mode-switch__button${treeViewMode === 'radial' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeViewMode('radial')}
+                                        >
+                                            Radial
+                                        </button>
+
+                                        <button
+                                            type="button"
                                             className={`tree-view-mode-switch__button${treeViewMode === 'outline' ? ' is-active' : ''}`}
                                             onClick={() => setTreeViewMode('outline')}
                                         >
                                             Esquema
+                                        </button>
+                                    </div>
+
+                                    <div className="tree-view-mode-switch" aria-label="Visibilidad del árbol">
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeVisibilityMode === 'free' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeVisibilityMode('free')}
+                                            disabled={treeBusy}
+                                        >
+                                            Libre
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeVisibilityMode === 'expanded' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeVisibilityMode('expanded')}
+                                            disabled={treeBusy}
+                                        >
+                                            Expandir
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeVisibilityMode === 'collapsed' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeVisibilityMode('collapsed')}
+                                            disabled={treeBusy}
+                                        >
+                                            Colapsar
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className={`tree-view-mode-switch__button${treeVisibilityMode === 'focus' ? ' is-active' : ''}`}
+                                            onClick={() => setTreeVisibilityMode('focus')}
+                                            disabled={treeBusy}
+                                        >
+                                            Foco
                                         </button>
                                     </div>
 
@@ -1435,9 +1756,48 @@ export function RootTreePanel({
                                             <Controls showInteractive={false} position="bottom-left" />
                                         </ReactFlow>
                                     </div>
+                                ) : treeViewMode === 'radial' ? (
+                                    <div
+                                        ref={treeRadialRef}
+                                        className="tree-canvas tree-canvas--radial"
+                                        data-testid="tree-radial"
+                                    >
+                                        <ReactFlow
+                                            nodes={radialFlowModel.flowNodes}
+                                            edges={radialFlowModel.flowEdges}
+                                            nodeTypes={nodeTypes}
+                                            minZoom={0.02}
+                                            maxZoom={2.5}
+                                            nodesDraggable={false}
+                                            nodesConnectable={false}
+                                            elementsSelectable={false}
+                                            selectionOnDrag={false}
+                                            zoomOnDoubleClick={false}
+                                            panOnDrag
+                                            panOnScroll={false}
+                                            zoomOnScroll
+                                            zoomOnPinch
+                                            fitView
+                                            fitViewOptions={{
+                                                padding: 0.28,
+                                                minZoom: 0.02,
+                                                maxZoom: 0.75,
+                                            }}
+                                            onlyRenderVisibleElements
+                                        >
+                                            <SelectionVisibilityBridge
+                                                documentId={snapshot.document.id}
+                                                selectedNodeId={selectedNodeId}
+                                                layoutSignature={radialLayoutSignature}
+                                                canvasContainerRef={treeRadialRef}
+                                            />
+                                            <Background gap={24} size={1} />
+                                            <Controls showInteractive={false} position="bottom-left" />
+                                        </ReactFlow>
+                                    </div>
                                 ) : (
                                     <TreeOutline
-                                        nodes={nodes}
+                                        nodes={visualModeNodes}
                                         rootNodeId={snapshot.rootNodeId}
                                         selectedNodeId={selectedNodeId}
                                         isBusy={treeBusy}
