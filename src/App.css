@@ -304,6 +304,36 @@ textarea {
   color: var(--muted);
 }
 
+.root-tree-panel__header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.root-tree-panel__header-action-button {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #dbeafe;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.root-tree-panel__header-action-button:hover {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.root-tree-panel__header-action-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .root-tree-panel__body {
   display: grid;
   gap: 18px;
@@ -2418,6 +2448,12 @@ textarea {
   .root-tree-panel__header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .root-tree-panel__header-actions {
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .tree-canvas {

@@ -1111,6 +1111,34 @@ export function RootTreePanel({
         setTreeVisibilityMode('free');
         await onSetNodeCollapsed(selectedNode.id, !selectedNode.isCollapsed);
     };
+
+    const handleRenameOpenedDocument = async () => {
+        if (!snapshot || treeBusy) {
+            return;
+        }
+
+        const rawTitle = window.prompt(
+            'Nuevo título del documento',
+            snapshot.document.title,
+        );
+
+        if (rawTitle === null) {
+            return;
+        }
+
+        const normalizedTitle = rawTitle.trim();
+
+        if (!normalizedTitle || normalizedTitle === snapshot.document.title) {
+            return;
+        }
+
+        if (hasPendingChanges) {
+            await persistPendingChanges();
+        }
+
+        await onRenameNode(snapshot.rootNodeId, normalizedTitle);
+    };
+
     const handleLearningStatusChange = async (
         nextLearningStatus: NodeDto['learningStatus'],
     ) => {
@@ -1601,8 +1629,19 @@ export function RootTreePanel({
                         <h2 className="root-tree-panel__title">{snapshot.document.title}</h2>
                     </div>
 
-                    <div className="root-tree-panel__selection">
-                        Selección activa: nodo #{selectedNodeId}
+                    <div className="root-tree-panel__header-actions">
+                        <div className="root-tree-panel__selection">
+                            Selección activa: nodo #{selectedNodeId}
+                        </div>
+
+                        <button
+                            type="button"
+                            className="root-tree-panel__header-action-button"
+                            onClick={() => void handleRenameOpenedDocument()}
+                            disabled={treeBusy}
+                        >
+                            Renombrar documento
+                        </button>
                     </div>
                 </header>
             ) : null}
