@@ -1,5 +1,6 @@
 #[cfg(test)]
 use std::path::Path;
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -10,6 +11,22 @@ use super::models::{
     DocumentDto, DocumentListItemDto, DocumentViewStateDto, NodeDto, OpenDocumentSnapshotDto,
     SelectedNodeContentDto,
 };
+
+#[derive(Clone)]
+struct CopyNodeSource {
+    id: i64,
+    parent_id: Option<i64>,
+    title: String,
+    learning_status: String,
+    is_collapsed: i64,
+    sibling_order: i64,
+}
+
+struct CopyNodeContentSource {
+    node_id: i64,
+    note: Option<String>,
+    body: String,
+}
 
 pub struct Database {
     pub(crate) connection: Connection,
@@ -228,6 +245,107 @@ impl Database {
             Some(next_document_id) => self.load_document_snapshot(next_document_id),
             None => Ok(None),
         }
+    }
+
+        pub fn copy_document(
+        &mut self,
+        source_document_id: i64,
+    ) -> Result<Option<OpenDocumentSnapshotDto>, String> {
+        let now = now_ts();
+
+        let transaction = self.connection.transaction().map_err(|error| {
+            format!("No se pudo iniciar la transacción de copy_document: {error}")
+        })?;
+
+        let source_document_title = transaction
+            .query_row(
+                r#"
+                SELECT title
+                FROM documents
+                WHERE id = ?1
+                "#,
+                [source_document_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| {
+                format!("No se pudo leer el documento origen {source_document_id}: {error}")
+            })?;
+
+        let Some(source_document_title) = source_document_title else {
+            return Ok(None);
+        };
+
+        let copied_document_title = normalize_node_title(format!(
+            "Copia de {source_document_title}",
+        ))?;
+
+        let copied_document_id = insert_document(
+            &transaction,
+            &copied_document_title,
+            now,
+        )?;
+
+        let source_nodes = load_copy_node_sources(
+            &transaction,
+            source_document_id,
+        )?;
+
+        if source_nodes.is_empty() {
+            return Err(format!(
+                "El documento origen {source_document_id} no tiene nodos para copiar",
+            ));
+        }
+
+        let source_root_node_id = source_nodes
+            .iter()
+            .find(|node| node.parent_id.is_none())
+            .map(|node| node.id)
+            .ok_or_else(|| {
+                format!("El documento origen {source_document_id} no tiene nodo root")
+            })?;
+
+        let copied_node_ids_by_source_id = copy_nodes_into_document(
+            &transaction,
+            copied_document_id,
+            &source_nodes,
+            now,
+        )?;
+
+        let copied_root_node_id = copied_node_ids_by_source_id
+            .get(&source_root_node_id)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "No se pudo resolver el root copiado del documento origen {source_document_id}",
+                )
+            })?;
+
+        copy_node_contents_into_document(
+            &transaction,
+            source_document_id,
+            &copied_node_ids_by_source_id,
+            now,
+        )?;
+
+        update_document_view_state_selection(
+            &transaction,
+            copied_document_id,
+            copied_root_node_id,
+            now,
+        )?;
+
+        update_last_opened_document_id(
+            &transaction,
+            copied_document_id,
+            now,
+        )?;
+
+        transaction
+            .commit()
+            .map_err(|error| format!("No se pudo confirmar copy_document: {error}"))?;
+
+        self.load_document_snapshot(copied_document_id)
     }
 
     pub fn update_node_content(
@@ -1211,6 +1329,253 @@ fn is_descendant_of_node(
 
         current_node_id = parent_id;
     }
+}
+
+fn load_copy_node_sources(
+    transaction: &Transaction<'_>,
+    source_document_id: i64,
+) -> Result<Vec<CopyNodeSource>, String> {
+    let mut statement = transaction
+        .prepare(
+            r#"
+            SELECT
+              id,
+              parent_id,
+              title,
+              learning_status,
+              is_collapsed,
+              sibling_order
+            FROM nodes
+            WHERE document_id = ?1
+            ORDER BY
+              CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END,
+              parent_id,
+              sibling_order,
+              id
+            "#,
+        )
+        .map_err(|error| {
+            format!("No se pudo preparar la lectura de nodos para copiar: {error}")
+        })?;
+
+    let rows = statement
+        .query_map([source_document_id], |row| {
+            Ok(CopyNodeSource {
+                id: row.get(0)?,
+                parent_id: row.get(1)?,
+                title: row.get(2)?,
+                learning_status: row.get(3)?,
+                is_collapsed: row.get(4)?,
+                sibling_order: row.get(5)?,
+            })
+        })
+        .map_err(|error| {
+            format!("No se pudieron leer los nodos del documento origen {source_document_id}: {error}")
+        })?;
+
+    let mut nodes = Vec::new();
+
+    for row in rows {
+        nodes.push(
+            row.map_err(|error| {
+                format!("No se pudo leer un nodo del documento origen {source_document_id}: {error}")
+            })?,
+        );
+    }
+
+    Ok(nodes)
+}
+
+fn copy_nodes_into_document(
+    transaction: &Transaction<'_>,
+    copied_document_id: i64,
+    source_nodes: &[CopyNodeSource],
+    now: i64,
+) -> Result<HashMap<i64, i64>, String> {
+    let mut copied_node_ids_by_source_id = HashMap::<i64, i64>::new();
+    let mut remaining_nodes = source_nodes.to_vec();
+
+    while !remaining_nodes.is_empty() {
+        let mut copied_in_current_pass = 0;
+        let mut index = 0;
+
+        while index < remaining_nodes.len() {
+            let source_node = &remaining_nodes[index];
+
+            let copied_parent_id = match source_node.parent_id {
+                Some(source_parent_id) => {
+                    let Some(copied_parent_id) =
+                        copied_node_ids_by_source_id.get(&source_parent_id).copied()
+                    else {
+                        index += 1;
+                        continue;
+                    };
+
+                    Some(copied_parent_id)
+                }
+                None => None,
+            };
+
+            let source_node = remaining_nodes.remove(index);
+
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO nodes (
+                      document_id,
+                      parent_id,
+                      title,
+                      learning_status,
+                      is_collapsed,
+                      sibling_order,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    "#,
+                    params![
+                        copied_document_id,
+                        copied_parent_id,
+                        source_node.title,
+                        source_node.learning_status,
+                        source_node.is_collapsed,
+                        source_node.sibling_order,
+                        now,
+                        now,
+                    ],
+                )
+                .map_err(|error| {
+                    format!(
+                        "No se pudo copiar el nodo {} al documento {}: {error}",
+                        source_node.id,
+                        copied_document_id,
+                    )
+                })?;
+
+            let copied_node_id = transaction.last_insert_rowid();
+
+            copied_node_ids_by_source_id.insert(
+                source_node.id,
+                copied_node_id,
+            );
+
+            copied_in_current_pass += 1;
+        }
+
+        if copied_in_current_pass == 0 {
+            return Err(
+                "No se pudo reconstruir la jerarquía del documento copiado. Hay nodos con parent_id no resoluble."
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(copied_node_ids_by_source_id)
+}
+
+fn load_copy_node_content_sources(
+    transaction: &Transaction<'_>,
+    source_document_id: i64,
+) -> Result<Vec<CopyNodeContentSource>, String> {
+    let mut statement = transaction
+        .prepare(
+            r#"
+            SELECT
+              nodes.id,
+              node_content.note,
+              COALESCE(node_content.body, '')
+            FROM nodes
+            LEFT JOIN node_content
+              ON node_content.node_id = nodes.id
+            WHERE nodes.document_id = ?1
+            ORDER BY nodes.id
+            "#,
+        )
+        .map_err(|error| {
+            format!("No se pudo preparar la lectura de contenidos para copiar: {error}")
+        })?;
+
+    let rows = statement
+        .query_map([source_document_id], |row| {
+            Ok(CopyNodeContentSource {
+                node_id: row.get(0)?,
+                note: row.get(1)?,
+                body: row.get(2)?,
+            })
+        })
+        .map_err(|error| {
+            format!(
+                "No se pudieron leer los contenidos del documento origen {source_document_id}: {error}",
+            )
+        })?;
+
+    let mut contents = Vec::new();
+
+    for row in rows {
+        contents.push(
+            row.map_err(|error| {
+                format!(
+                    "No se pudo leer un contenido del documento origen {source_document_id}: {error}",
+                )
+            })?,
+        );
+    }
+
+    Ok(contents)
+}
+
+fn copy_node_contents_into_document(
+    transaction: &Transaction<'_>,
+    source_document_id: i64,
+    copied_node_ids_by_source_id: &HashMap<i64, i64>,
+    now: i64,
+) -> Result<(), String> {
+    let source_contents = load_copy_node_content_sources(
+        transaction,
+        source_document_id,
+    )?;
+
+    for source_content in source_contents {
+        let copied_node_id = copied_node_ids_by_source_id
+            .get(&source_content.node_id)
+            .copied()
+            .ok_or_else(|| {
+                format!(
+                    "No se pudo resolver el nodo copiado para el contenido del nodo origen {}",
+                    source_content.node_id,
+                )
+            })?;
+
+        transaction
+            .execute(
+                r#"
+                INSERT INTO node_content (
+                  node_id,
+                  note,
+                  body,
+                  created_at,
+                  updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                "#,
+                params![
+                    copied_node_id,
+                    source_content.note,
+                    source_content.body,
+                    now,
+                    now,
+                ],
+            )
+            .map_err(|error| {
+                format!(
+                    "No se pudo copiar el contenido del nodo origen {} al nodo nuevo {}: {error}",
+                    source_content.node_id,
+                    copied_node_id,
+                )
+            })?;
+    }
+
+    Ok(())
 }
 
 fn insert_document(transaction: &Transaction<'_>, title: &str, now: i64) -> Result<i64, String> {

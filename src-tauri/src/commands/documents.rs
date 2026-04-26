@@ -24,6 +24,12 @@ pub struct DeleteDocumentInput {
     pub document_id: i64,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyDocumentInput {
+    pub source_document_id: i64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateChildNodeInput {
@@ -142,6 +148,19 @@ pub fn delete_document(
         .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
 
     db.delete_document(input.document_id)
+}
+
+#[tauri::command]
+pub fn copy_document(
+    input: CopyDocumentInput,
+    state: State<'_, DatabaseState>,
+) -> Result<Option<OpenDocumentSnapshotDto>, String> {
+    let mut db = state
+        .db
+        .lock()
+        .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
+
+    db.copy_document(input.source_document_id)
 }
 
 #[tauri::command]

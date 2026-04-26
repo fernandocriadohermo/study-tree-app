@@ -9,10 +9,12 @@ interface DocumentsSidebarProps {
     isCreating: boolean;
     isOpeningDocumentId: number | null;
     isDeletingDocumentId: number | null;
+    isCopyingDocumentId: number | null;
     onRetry: () => void;
     onCreateDocument: (title: string) => Promise<void> | void;
     onOpenDocument: (documentId: number) => Promise<void> | void;
     onDeleteDocument: (documentId: number) => Promise<void> | void;
+    onCopyDocument: (documentId: number) => Promise<void> | void;
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -29,10 +31,12 @@ export function DocumentsSidebar({
     isCreating,
     isOpeningDocumentId,
     isDeletingDocumentId,
+    isCopyingDocumentId,
     onRetry,
     onCreateDocument,
     onOpenDocument,
     onDeleteDocument,
+    onCopyDocument,
 }: DocumentsSidebarProps) {
     const [draftTitle, setDraftTitle] = useState('');
 
@@ -62,6 +66,10 @@ export function DocumentsSidebar({
         }
 
         await onDeleteDocument(documentId);
+    };
+
+    const handleCopyDocument = async (documentId: number) => {
+        await onCopyDocument(documentId);
     };
 
     return (
@@ -127,7 +135,11 @@ export function DocumentsSidebar({
                         const isActive = activeDocumentId === document.id;
                         const isOpening = isOpeningDocumentId === document.id;
                         const isDeleting = isDeletingDocumentId === document.id;
+                        const isCopying = isCopyingDocumentId === document.id;
                         const isAnyDocumentDeleting = isDeletingDocumentId !== null;
+                        const isAnyDocumentCopying = isCopyingDocumentId !== null;
+                        const isDocumentActionBusy =
+                            isAnyDocumentDeleting || isAnyDocumentCopying;
 
                         return (
                             <li key={document.id} className="documents-list__item">
@@ -136,7 +148,7 @@ export function DocumentsSidebar({
                                         type="button"
                                         className={`documents-list__button${isActive ? ' is-active' : ''}`}
                                         onClick={() => onOpenDocument(document.id)}
-                                        disabled={isOpening || isAnyDocumentDeleting}
+                                        disabled={isOpening || isDocumentActionBusy}
                                     >
                                         <span className="documents-list__title">{document.title}</span>
                                         <span className="documents-list__meta">
@@ -148,18 +160,33 @@ export function DocumentsSidebar({
                                         {isDeleting ? (
                                             <span className="documents-list__state">Borrando…</span>
                                         ) : null}
+                                        {isCopying ? (
+                                            <span className="documents-list__state">Copiando…</span>
+                                        ) : null}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="documents-list__copy-button"
+                                        onClick={() => void handleCopyDocument(document.id)}
+                                        disabled={isOpening || isDocumentActionBusy}
+                                        aria-label={`Copiar ${document.title}`}
+                                        title="Copiar documento"
+                                    >
+                                        ⧉
                                     </button>
 
                                     <button
                                         type="button"
                                         className="documents-list__delete-button"
                                         onClick={() => void handleDeleteDocument(document.id, document.title)}
-                                        disabled={isOpening || isAnyDocumentDeleting}
+                                        disabled={isOpening || isDocumentActionBusy}
                                         aria-label={`Borrar ${document.title}`}
                                         title="Borrar documento"
                                     >
                                         ×
                                     </button>
+
                                 </div>
                             </li>
                         );

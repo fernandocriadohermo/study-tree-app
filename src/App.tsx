@@ -16,6 +16,7 @@ export default function App() {
     isCreating,
     isOpeningDocumentId,
     isDeletingDocumentId,
+    isCopyingDocumentId,
     isSavingContent,
     saveErrorMessage,
     isCreatingChild,
@@ -30,6 +31,7 @@ export default function App() {
     createDocument,
     openDocument,
     deleteDocument,
+    copyDocument,
     autosaveSelectedNodeContent,
     createChildNode,
     selectNode,
@@ -50,6 +52,8 @@ export default function App() {
           isCreating={isCreating}
           isOpeningDocumentId={isOpeningDocumentId}
           isDeletingDocumentId={isDeletingDocumentId}
+          isCopyingDocumentId={isCopyingDocumentId}
+          onCopyDocument={copyDocument}
           onRetry={loadDocuments}
           onCreateDocument={createDocument}
           onOpenDocument={openDocument}

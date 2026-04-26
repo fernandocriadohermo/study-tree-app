@@ -219,9 +219,38 @@ textarea {
 
 .documents-list__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
   align-items: stretch;
   gap: 8px;
+}
+
+.documents-list__copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  min-height: 100%;
+  padding: 0;
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.documents-list__copy-button:hover {
+  border-color: rgba(96, 165, 250, 0.48);
+  background: rgba(59, 130, 246, 0.2);
+  color: #ffffff;
+}
+
+.documents-list__copy-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .documents-list__delete-button {

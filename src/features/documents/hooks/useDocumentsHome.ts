@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/documents/contracts';
 import { createChildNode } from '../api/createChildNode';
 import { createDocument } from '../api/createDocument';
+import { copyDocument } from '../api/copyDocument';
 import { deleteDocument } from '../api/deleteDocument';
 import { deleteLeafNode } from '../api/deleteLeafNode';
 import { listDocuments } from '../api/listDocuments';
@@ -51,6 +52,7 @@ export function useDocumentsHome() {
     const [isCreating, setIsCreating] = useState(false);
     const [isOpeningDocumentId, setIsOpeningDocumentId] = useState<number | null>(null);
     const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<number | null>(null);
+    const [isCopyingDocumentId, setIsCopyingDocumentId] = useState<number | null>(null);
     const [isSavingContent, setIsSavingContent] = useState(false);
     const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
     const [isCreatingChild, setIsCreatingChild] = useState(false);
@@ -189,6 +191,47 @@ export function useDocumentsHome() {
             setIsDeletingDocumentId(null);
         }
     }, [isDeletingDocumentId]);
+
+    const handleCopyDocument = useCallback(async (sourceDocumentId: number) => {
+        if (isCopyingDocumentId !== null || isDeletingDocumentId !== null) {
+            return;
+        }
+
+        setIsCopyingDocumentId(sourceDocumentId);
+        setErrorMessage(null);
+        setSaveErrorMessage(null);
+
+        try {
+            const snapshot = await copyDocument(sourceDocumentId);
+
+            if (!snapshot) {
+                setErrorMessage('No se pudo copiar el documento porque ya no existe.');
+                setStatus('error');
+                return;
+            }
+
+            setOpenedSnapshot(snapshot);
+
+            try {
+                const refreshedDocuments = await listDocuments();
+                setDocuments(refreshedDocuments);
+            } catch {
+                setDocuments((current) => upsertDocumentListItem(current, snapshot));
+            }
+
+            setStatus('ready');
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'No se pudo copiar el documento.';
+
+            setErrorMessage(message);
+            setStatus('error');
+        } finally {
+            setIsCopyingDocumentId(null);
+        }
+    }, [isCopyingDocumentId, isDeletingDocumentId]);
 
     const handleAutosaveSelectedNodeContent = useCallback(
         async (note: string, body: string) => {
@@ -509,6 +552,7 @@ export function useDocumentsHome() {
         isCreating,
         isOpeningDocumentId,
         isDeletingDocumentId,
+        isCopyingDocumentId,
         isSavingContent,
         saveErrorMessage,
         isCreatingChild,
@@ -523,6 +567,7 @@ export function useDocumentsHome() {
         createDocument: handleCreateDocument,
         openDocument: handleOpenDocument,
         deleteDocument: handleDeleteDocument,
+        copyDocument: handleCopyDocument,
         autosaveSelectedNodeContent: handleAutosaveSelectedNodeContent,
         createChildNode: handleCreateChildNode,
         selectNode: handleSelectNode,
