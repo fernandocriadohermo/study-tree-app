@@ -218,16 +218,16 @@ function isTreeBusy(
 
 type TreeVisibilityMode = 'free' | 'expanded' | 'collapsed' | 'focus';
 
-function getNodeAncestorIds(
+function getNodePathIds(
     node: NodeDto,
     nodesById: Map<number, NodeDto>,
-): Set<number> {
-    const ancestorIds = new Set<number>();
+): number[] {
+    const pathIds: number[] = [];
     let current: NodeDto | undefined = node;
     let guard = 0;
 
     while (current) {
-        ancestorIds.add(current.id);
+        pathIds.push(current.id);
 
         if (current.parentId === null) {
             break;
@@ -241,7 +241,7 @@ function getNodeAncestorIds(
         }
     }
 
-    return ancestorIds;
+    return pathIds.reverse();
 }
 
 function getFocusVisibleNodeIds(
@@ -250,17 +250,32 @@ function getFocusVisibleNodeIds(
     nodesById: Map<number, NodeDto>,
     childrenByParentId: Map<number, NodeDto[]>,
 ): Set<number> {
-    const selectedNode = nodesById.get(selectedNodeId) ?? nodesById.get(rootNodeId);
     const visibleNodeIds = new Set<number>();
+    const rootNode = nodesById.get(rootNodeId);
+    const selectedNode = nodesById.get(selectedNodeId) ?? rootNode;
 
-    if (!selectedNode) {
+    if (!rootNode || !selectedNode) {
         return visibleNodeIds;
     }
 
-    const ancestorIds = getNodeAncestorIds(selectedNode, nodesById);
+    const pathIds = getNodePathIds(selectedNode, nodesById);
 
-    for (const ancestorId of ancestorIds) {
-        visibleNodeIds.add(ancestorId);
+    for (const pathNodeId of pathIds) {
+        visibleNodeIds.add(pathNodeId);
+
+        const pathNodeChildren = childrenByParentId.get(pathNodeId) ?? [];
+
+        for (const childNode of pathNodeChildren) {
+            visibleNodeIds.add(childNode.id);
+        }
+    }
+
+    if (selectedNode.parentId !== null) {
+        const siblingNodes = childrenByParentId.get(selectedNode.parentId) ?? [];
+
+        for (const siblingNode of siblingNodes) {
+            visibleNodeIds.add(siblingNode.id);
+        }
     }
 
     const selectedNodeChildren = childrenByParentId.get(selectedNode.id) ?? [];
@@ -270,6 +285,30 @@ function getFocusVisibleNodeIds(
     }
 
     return visibleNodeIds;
+}
+
+function getFocusExpandedNodeIds(
+    rootNodeId: number,
+    selectedNodeId: number,
+    nodesById: Map<number, NodeDto>,
+): Set<number> {
+    const expandedNodeIds = new Set<number>();
+    const rootNode = nodesById.get(rootNodeId);
+    const selectedNode = nodesById.get(selectedNodeId) ?? rootNode;
+
+    if (!rootNode || !selectedNode) {
+        return expandedNodeIds;
+    }
+
+    const pathIds = getNodePathIds(selectedNode, nodesById);
+
+    for (const pathNodeId of pathIds) {
+        expandedNodeIds.add(pathNodeId);
+    }
+
+    expandedNodeIds.add(selectedNode.id);
+
+    return expandedNodeIds;
 }
 
 function buildVisualModeNodes(
@@ -298,29 +337,28 @@ function buildVisualModeNodes(
         }));
     }
 
-    const selectedNode = nodesById.get(selectedNodeId) ?? nodesById.get(rootNodeId);
-
-    if (!selectedNode) {
-        return nodes;
-    }
-
     const focusVisibleNodeIds = getFocusVisibleNodeIds(
         rootNodeId,
-        selectedNode.id,
+        selectedNodeId,
         nodesById,
         childrenByParentId,
     );
 
-    const expandedNodeIds = getNodeAncestorIds(selectedNode, nodesById);
-    expandedNodeIds.add(selectedNode.id);
+    const focusExpandedNodeIds = getFocusExpandedNodeIds(
+        rootNodeId,
+        selectedNodeId,
+        nodesById,
+    );
 
     return nodes
         .filter((node) => focusVisibleNodeIds.has(node.id))
         .map((node) => ({
             ...node,
-            isCollapsed: !expandedNodeIds.has(node.id),
+            isCollapsed: !focusExpandedNodeIds.has(node.id),
         }));
 }
+
+
 
 function StudyTreeCanvasNode({
     data,
@@ -1708,7 +1746,11 @@ export function RootTreePanel({
                                                 duration={180}
                                             />
                                             <Background gap={24} size={1} />
-                                            <Controls showInteractive={false} position="bottom-left" />
+                                            <Controls
+                                                className="tree-canvas__zoom-controls"
+                                                showInteractive={false}
+                                                position="top-left"
+                                            />
                                         </ReactFlow>
                                     </div>
                                 ) : treeViewMode === 'vertical' ? (
@@ -1753,7 +1795,11 @@ export function RootTreePanel({
                                                 duration={180}
                                             />
                                             <Background gap={24} size={1} />
-                                            <Controls showInteractive={false} position="bottom-left" />
+                                            <Controls
+                                                className="tree-canvas__zoom-controls"
+                                                showInteractive={false}
+                                                position="top-left"
+                                            />
                                         </ReactFlow>
                                     </div>
                                 ) : treeViewMode === 'radial' ? (
@@ -1792,7 +1838,11 @@ export function RootTreePanel({
                                                 canvasContainerRef={treeRadialRef}
                                             />
                                             <Background gap={24} size={1} />
-                                            <Controls showInteractive={false} position="bottom-left" />
+                                            <Controls
+                                                className="tree-canvas__zoom-controls"
+                                                showInteractive={false}
+                                                position="top-left"
+                                            />
                                         </ReactFlow>
                                     </div>
                                 ) : (
