@@ -7,6 +7,7 @@ import type {
 import { createChildNode } from '../api/createChildNode';
 import { createDocument } from '../api/createDocument';
 import { copyDocument } from '../api/copyDocument';
+import { createDocumentFromNode } from '../api/createDocumentFromNode';
 import { deleteDocument } from '../api/deleteDocument';
 import { deleteLeafNode } from '../api/deleteLeafNode';
 import { listDocuments } from '../api/listDocuments';
@@ -20,6 +21,18 @@ import { updateNodeContent } from '../api/updateNodeContent';
 import { setDocumentViewport } from '../api/setDocumentViewport';
 
 type HomeStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+function getErrorMessage(error: unknown, fallbackMessage: string): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    if (typeof error === 'string') {
+        return error;
+    }
+
+    return fallbackMessage;
+}
 
 function upsertDocumentListItem(
     documents: DocumentListItem[],
@@ -53,6 +66,7 @@ export function useDocumentsHome() {
     const [isOpeningDocumentId, setIsOpeningDocumentId] = useState<number | null>(null);
     const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<number | null>(null);
     const [isCopyingDocumentId, setIsCopyingDocumentId] = useState<number | null>(null);
+    const [isCreatingDocumentFromNodeId, setIsCreatingDocumentFromNodeId] = useState<number | null>(null);
     const [isSavingContent, setIsSavingContent] = useState(false);
     const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
     const [isCreatingChild, setIsCreatingChild] = useState(false);
@@ -61,6 +75,7 @@ export function useDocumentsHome() {
     const [isUpdatingLearningStatusNodeId, setIsUpdatingLearningStatusNodeId] = useState<number | null>(null);
     const [isRenamingNodeId, setIsRenamingNodeId] = useState<number | null>(null);
     const [isDeletingNodeId, setIsDeletingNodeId] = useState<number | null>(null);
+    const [createDocumentFromNodeErrorMessage, setCreateDocumentFromNodeErrorMessage] = useState<string | null>(null);
     const [isSavingViewport] = useState(false);
 
     const hasAttemptedAutoOpenRef = useRef(false);
@@ -233,6 +248,41 @@ export function useDocumentsHome() {
         }
     }, [isCopyingDocumentId, isDeletingDocumentId]);
 
+    const handleCreateDocumentFromNode = useCallback(
+        async (sourceDocumentId: number, sourceNodeId: number) => {
+            setIsCreatingDocumentFromNodeId(sourceNodeId);
+            setCreateDocumentFromNodeErrorMessage(null);
+            setErrorMessage(null);
+            setSaveErrorMessage(null);
+
+            try {
+                const snapshot = await createDocumentFromNode(
+                    sourceDocumentId,
+                    sourceNodeId,
+                );
+
+                if (!snapshot) {
+                    throw new Error('No se pudo crear el documento desde el nodo seleccionado.');
+                }
+
+                setOpenedSnapshot(snapshot);
+                setDocuments((current) => upsertDocumentListItem(current, snapshot));
+                setStatus('ready');
+            } catch (error) {
+                const message = getErrorMessage(
+                    error,
+                    'No se pudo crear el documento desde el nodo.',
+                );
+
+                setCreateDocumentFromNodeErrorMessage(message);
+                setStatus('ready');
+            } finally {
+                setIsCreatingDocumentFromNodeId(null);
+            }
+        },
+        [],
+    );
+
     const handleAutosaveSelectedNodeContent = useCallback(
         async (note: string, body: string) => {
             if (!openedSnapshot || !openedSnapshot.selectedNodeContent) {
@@ -296,11 +346,14 @@ export function useDocumentsHome() {
                 const message =
                     error instanceof Error
                         ? error.message
-                        : 'No se pudo crear el nodo hijo.';
-                setErrorMessage(message);
-                setStatus('error');
+                        : typeof error === 'string'
+                            ? error
+                            : 'No se pudo crear el documento desde el nodo.';
+
+                setCreateDocumentFromNodeErrorMessage(message);
+                setStatus('ready');
             } finally {
-                setIsCreatingChild(false);
+                setIsCreatingDocumentFromNodeId(null);
             }
         },
         [],
@@ -553,6 +606,8 @@ export function useDocumentsHome() {
         isOpeningDocumentId,
         isDeletingDocumentId,
         isCopyingDocumentId,
+        isCreatingDocumentFromNodeId,
+        createDocumentFromNodeErrorMessage,
         isSavingContent,
         saveErrorMessage,
         isCreatingChild,
@@ -568,6 +623,7 @@ export function useDocumentsHome() {
         openDocument: handleOpenDocument,
         deleteDocument: handleDeleteDocument,
         copyDocument: handleCopyDocument,
+        createDocumentFromNode: handleCreateDocumentFromNode,
         autosaveSelectedNodeContent: handleAutosaveSelectedNodeContent,
         createChildNode: handleCreateChildNode,
         selectNode: handleSelectNode,

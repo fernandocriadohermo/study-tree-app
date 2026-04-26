@@ -25,6 +25,8 @@ export default function App() {
     isUpdatingLearningStatusNodeId,
     isRenamingNodeId,
     isDeletingNodeId,
+    isCreatingDocumentFromNodeId,
+    createDocumentFromNodeErrorMessage,
     isSavingViewport,
     saveViewport,
     loadDocuments,
@@ -39,6 +41,7 @@ export default function App() {
     setNodeLearningStatus,
     renameNode,
     deleteLeafNode,
+    createDocumentFromNode,
   } = useDocumentsHome();
 
   return (
@@ -72,6 +75,8 @@ export default function App() {
           isUpdatingLearningStatusNodeId={isUpdatingLearningStatusNodeId}
           isRenamingNodeId={isRenamingNodeId}
           isDeletingNodeId={isDeletingNodeId}
+          isCreatingDocumentFromNodeId={isCreatingDocumentFromNodeId}
+          createDocumentFromNodeErrorMessage={createDocumentFromNodeErrorMessage}
           onAutosaveContent={autosaveSelectedNodeContent}
           onCreateChildNode={createChildNode}
           onSelectNode={selectNode}
@@ -79,6 +84,7 @@ export default function App() {
           onSetNodeLearningStatus={setNodeLearningStatus}
           onRenameNode={renameNode}
           onDeleteLeafNode={deleteLeafNode}
+          onCreateDocumentFromNode={createDocumentFromNode}
           isSavingViewport={isSavingViewport}
           onSaveViewport={saveViewport}
           onDetailsMaximizedChange={setIsDetailsMaximized}

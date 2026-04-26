@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 #[cfg(test)]
 use std::path::Path;
-use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -181,7 +181,7 @@ impl Database {
         self.open_document(document_id)
     }
 
-        pub fn delete_document(
+    pub fn delete_document(
         &mut self,
         document_id: i64,
     ) -> Result<Option<OpenDocumentSnapshotDto>, String> {
@@ -247,7 +247,7 @@ impl Database {
         }
     }
 
-        pub fn copy_document(
+    pub fn copy_document(
         &mut self,
         source_document_id: i64,
     ) -> Result<Option<OpenDocumentSnapshotDto>, String> {
@@ -276,20 +276,12 @@ impl Database {
             return Ok(None);
         };
 
-        let copied_document_title = normalize_node_title(format!(
-            "Copia de {source_document_title}",
-        ))?;
+        let copied_document_title =
+            normalize_node_title(format!("Copia de {source_document_title}",))?;
 
-        let copied_document_id = insert_document(
-            &transaction,
-            &copied_document_title,
-            now,
-        )?;
+        let copied_document_id = insert_document(&transaction, &copied_document_title, now)?;
 
-        let source_nodes = load_copy_node_sources(
-            &transaction,
-            source_document_id,
-        )?;
+        let source_nodes = load_copy_node_sources(&transaction, source_document_id)?;
 
         if source_nodes.is_empty() {
             return Err(format!(
@@ -305,12 +297,8 @@ impl Database {
                 format!("El documento origen {source_document_id} no tiene nodo root")
             })?;
 
-        let copied_node_ids_by_source_id = copy_nodes_into_document(
-            &transaction,
-            copied_document_id,
-            &source_nodes,
-            now,
-        )?;
+        let copied_node_ids_by_source_id =
+            copy_nodes_into_document(&transaction, copied_document_id, &source_nodes, now)?;
 
         let copied_root_node_id = copied_node_ids_by_source_id
             .get(&source_root_node_id)
@@ -335,17 +323,117 @@ impl Database {
             now,
         )?;
 
-        update_last_opened_document_id(
-            &transaction,
-            copied_document_id,
-            now,
-        )?;
+        update_last_opened_document_id(&transaction, copied_document_id, now)?;
 
         transaction
             .commit()
             .map_err(|error| format!("No se pudo confirmar copy_document: {error}"))?;
 
         self.load_document_snapshot(copied_document_id)
+    }
+
+    pub fn create_document_from_node(
+        &mut self,
+        source_document_id: i64,
+        source_node_id: i64,
+    ) -> Result<OpenDocumentSnapshotDto, String> {
+        let now = now_ts();
+
+        let transaction = self.connection.transaction().map_err(|error| {
+            format!("No se pudo iniciar la transacción de create_document_from_node: {error}")
+        })?;
+
+        let source_nodes =
+            collect_subtree_copy_sources(&transaction, source_document_id, source_node_id)?;
+
+        let source_root_node = source_nodes.first().ok_or_else(|| {
+            "El nodo origen no existe o no pertenece al documento indicado.".to_string()
+        })?;
+
+        let new_document_title = normalize_node_title(source_root_node.title.clone())?;
+        let new_document_id = insert_document(&transaction, &new_document_title, now)?;
+
+        let mut copied_node_id_by_source_node_id = std::collections::HashMap::<i64, i64>::new();
+
+        for source_node in &source_nodes {
+            let copied_parent_id = if source_node.source_node_id == source_node_id {
+                None
+            } else {
+                let source_parent_id = source_node.source_parent_id.ok_or_else(|| {
+                    format!(
+                        "No se pudo copiar el nodo {} porque no tiene padre origen válido.",
+                        source_node.source_node_id
+                    )
+                })?;
+
+                let copied_parent_id = copied_node_id_by_source_node_id
+                    .get(&source_parent_id)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "No se pudo copiar el nodo {} porque su padre origen {} todavía no fue copiado.",
+                            source_node.source_node_id,
+                            source_parent_id
+                        )
+                    })?;
+
+                Some(copied_parent_id)
+            };
+
+            let copied_sibling_order = if copied_parent_id.is_none() {
+                0
+            } else {
+                source_node.sibling_order
+            };
+
+            let copied_node_id = insert_copied_node(
+                &transaction,
+                new_document_id,
+                copied_parent_id,
+                &source_node.title,
+                &source_node.learning_status,
+                source_node.is_collapsed,
+                copied_sibling_order,
+                now,
+            )?;
+
+            insert_copied_node_content(
+                &transaction,
+                copied_node_id,
+                source_node.note.as_deref(),
+                &source_node.body,
+                now,
+            )?;
+
+            copied_node_id_by_source_node_id.insert(source_node.source_node_id, copied_node_id);
+        }
+
+        let new_root_node_id = copied_node_id_by_source_node_id
+            .get(&source_node_id)
+            .copied()
+            .ok_or_else(|| "No se pudo resolver el nuevo root copiado.".to_string())?;
+
+        update_document_view_state_selection(&transaction, new_document_id, new_root_node_id, now)?;
+        update_last_opened_document_id(&transaction, new_document_id, now)?;
+
+        transaction
+            .commit()
+            .map_err(|error| format!("No se pudo confirmar create_document_from_node: {error}"))?;
+
+        let snapshot = self
+            .load_document_snapshot(new_document_id)?
+            .ok_or_else(|| {
+                format!("Documento {new_document_id} creado desde nodo pero no recuperable")
+            })?;
+
+        if snapshot.root_node_id != new_root_node_id {
+            return Err(
+                "El root recuperado no coincide con el root copiado desde el nodo origen."
+                    .to_string(),
+            );
+        }
+
+        Ok(snapshot)
     }
 
     pub fn update_node_content(
@@ -1354,9 +1442,7 @@ fn load_copy_node_sources(
               id
             "#,
         )
-        .map_err(|error| {
-            format!("No se pudo preparar la lectura de nodos para copiar: {error}")
-        })?;
+        .map_err(|error| format!("No se pudo preparar la lectura de nodos para copiar: {error}"))?;
 
     let rows = statement
         .query_map([source_document_id], |row| {
@@ -1370,17 +1456,17 @@ fn load_copy_node_sources(
             })
         })
         .map_err(|error| {
-            format!("No se pudieron leer los nodos del documento origen {source_document_id}: {error}")
+            format!(
+                "No se pudieron leer los nodos del documento origen {source_document_id}: {error}"
+            )
         })?;
 
     let mut nodes = Vec::new();
 
     for row in rows {
-        nodes.push(
-            row.map_err(|error| {
-                format!("No se pudo leer un nodo del documento origen {source_document_id}: {error}")
-            })?,
-        );
+        nodes.push(row.map_err(|error| {
+            format!("No se pudo leer un nodo del documento origen {source_document_id}: {error}")
+        })?);
     }
 
     Ok(nodes)
@@ -1447,17 +1533,13 @@ fn copy_nodes_into_document(
                 .map_err(|error| {
                     format!(
                         "No se pudo copiar el nodo {} al documento {}: {error}",
-                        source_node.id,
-                        copied_document_id,
+                        source_node.id, copied_document_id,
                     )
                 })?;
 
             let copied_node_id = transaction.last_insert_rowid();
 
-            copied_node_ids_by_source_id.insert(
-                source_node.id,
-                copied_node_id,
-            );
+            copied_node_ids_by_source_id.insert(source_node.id, copied_node_id);
 
             copied_in_current_pass += 1;
         }
@@ -1512,13 +1594,11 @@ fn load_copy_node_content_sources(
     let mut contents = Vec::new();
 
     for row in rows {
-        contents.push(
-            row.map_err(|error| {
-                format!(
-                    "No se pudo leer un contenido del documento origen {source_document_id}: {error}",
-                )
-            })?,
-        );
+        contents.push(row.map_err(|error| {
+            format!(
+                "No se pudo leer un contenido del documento origen {source_document_id}: {error}",
+            )
+        })?);
     }
 
     Ok(contents)
@@ -1530,10 +1610,7 @@ fn copy_node_contents_into_document(
     copied_node_ids_by_source_id: &HashMap<i64, i64>,
     now: i64,
 ) -> Result<(), String> {
-    let source_contents = load_copy_node_content_sources(
-        transaction,
-        source_document_id,
-    )?;
+    let source_contents = load_copy_node_content_sources(transaction, source_document_id)?;
 
     for source_content in source_contents {
         let copied_node_id = copied_node_ids_by_source_id
@@ -1569,11 +1646,201 @@ fn copy_node_contents_into_document(
             .map_err(|error| {
                 format!(
                     "No se pudo copiar el contenido del nodo origen {} al nodo nuevo {}: {error}",
-                    source_content.node_id,
-                    copied_node_id,
+                    source_content.node_id, copied_node_id,
                 )
             })?;
     }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SubtreeCopySourceNode {
+    source_node_id: i64,
+    source_parent_id: Option<i64>,
+    title: String,
+    learning_status: String,
+    is_collapsed: bool,
+    sibling_order: i64,
+    note: Option<String>,
+    body: String,
+}
+
+fn collect_subtree_copy_sources(
+    transaction: &Transaction<'_>,
+    source_document_id: i64,
+    source_node_id: i64,
+) -> Result<Vec<SubtreeCopySourceNode>, String> {
+    let mut statement = transaction
+        .prepare(
+            r#"
+            WITH RECURSIVE subtree (
+              id,
+              parent_id,
+              title,
+              learning_status,
+              is_collapsed,
+              sibling_order,
+              depth,
+              sort_path
+            ) AS (
+              SELECT
+                id,
+                parent_id,
+                title,
+                learning_status,
+                is_collapsed,
+                sibling_order,
+                0 AS depth,
+                printf('%012d', sibling_order) || '-' || printf('%012d', id) AS sort_path
+              FROM nodes
+              WHERE document_id = ?1
+                AND id = ?2
+
+              UNION ALL
+
+              SELECT
+                child.id,
+                child.parent_id,
+                child.title,
+                child.learning_status,
+                child.is_collapsed,
+                child.sibling_order,
+                subtree.depth + 1 AS depth,
+                subtree.sort_path || '/' || printf('%012d', child.sibling_order) || '-' || printf('%012d', child.id) AS sort_path
+              FROM nodes child
+              INNER JOIN subtree
+                ON subtree.id = child.parent_id
+              WHERE child.document_id = ?1
+            )
+            SELECT
+              subtree.id,
+              subtree.parent_id,
+              subtree.title,
+              subtree.learning_status,
+              subtree.is_collapsed,
+              subtree.sibling_order,
+              node_content.note,
+              COALESCE(node_content.body, '') AS body
+            FROM subtree
+            LEFT JOIN node_content
+              ON node_content.node_id = subtree.id
+            ORDER BY subtree.depth ASC, subtree.sort_path ASC
+            "#,
+        )
+        .map_err(|error| {
+            format!(
+                "No se pudo preparar la consulta de copia del subárbol desde el nodo {source_node_id}: {error}"
+            )
+        })?;
+
+    let rows = statement
+        .query_map(params![source_document_id, source_node_id], |row| {
+            let is_collapsed_int: i64 = row.get(4)?;
+
+            Ok(SubtreeCopySourceNode {
+                source_node_id: row.get(0)?,
+                source_parent_id: row.get(1)?,
+                title: row.get(2)?,
+                learning_status: row.get(3)?,
+                is_collapsed: is_collapsed_int == 1,
+                sibling_order: row.get(5)?,
+                note: row.get(6)?,
+                body: row.get(7)?,
+            })
+        })
+        .map_err(|error| {
+            format!(
+                "No se pudo ejecutar la consulta de copia del subárbol desde el nodo {source_node_id}: {error}"
+            )
+        })?;
+
+    let mut source_nodes = Vec::new();
+
+    for row in rows {
+        source_nodes.push(row.map_err(|error| {
+            format!("No se pudo leer un nodo del subárbol origen {source_node_id}: {error}")
+        })?);
+    }
+
+    if source_nodes.is_empty() {
+        return Err("El nodo origen no existe o no pertenece al documento indicado.".to_string());
+    }
+
+    Ok(source_nodes)
+}
+
+fn insert_copied_node(
+    transaction: &Transaction<'_>,
+    document_id: i64,
+    parent_id: Option<i64>,
+    title: &str,
+    learning_status: &str,
+    is_collapsed: bool,
+    sibling_order: i64,
+    now: i64,
+) -> Result<i64, String> {
+    let is_collapsed_int = if is_collapsed { 1 } else { 0 };
+
+    transaction
+        .execute(
+            r#"
+            INSERT INTO nodes (
+              document_id,
+              parent_id,
+              title,
+              learning_status,
+              is_collapsed,
+              sibling_order,
+              created_at,
+              updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "#,
+            params![
+                document_id,
+                parent_id,
+                title,
+                learning_status,
+                is_collapsed_int,
+                sibling_order,
+                now,
+                now
+            ],
+        )
+        .map_err(|error| {
+            format!(
+                "No se pudo insertar el nodo copiado \"{title}\" en el documento {document_id}: {error}"
+            )
+        })?;
+
+    Ok(transaction.last_insert_rowid())
+}
+
+fn insert_copied_node_content(
+    transaction: &Transaction<'_>,
+    node_id: i64,
+    note: Option<&str>,
+    body: &str,
+    now: i64,
+) -> Result<(), String> {
+    transaction
+        .execute(
+            r#"
+            INSERT INTO node_content (
+              node_id,
+              note,
+              body,
+              created_at,
+              updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![node_id, note, body, now, now],
+        )
+        .map_err(|error| {
+            format!("No se pudo insertar el contenido del nodo copiado {node_id}: {error}")
+        })?;
 
     Ok(())
 }

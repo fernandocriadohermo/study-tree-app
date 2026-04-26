@@ -42,6 +42,12 @@ interface RootTreePanelProps {
     ) => Promise<void> | void;
     onRenameNode: (nodeId: number, title: string) => Promise<void> | void;
     onDeleteLeafNode: (nodeId: number) => Promise<void> | void;
+    isCreatingDocumentFromNodeId: number | null;
+    createDocumentFromNodeErrorMessage: string | null;
+    onCreateDocumentFromNode: (
+        sourceDocumentId: number,
+        sourceNodeId: number,
+    ) => Promise<void> | void;
     isSavingViewport: boolean;
     onSaveViewport: (
         documentId: number,
@@ -661,6 +667,54 @@ const nodeTypes = {
     studyTreeNode: StudyTreeCanvasNode,
 };
 
+interface CanvasNodeActionsProps {
+    selectedNodeTitle: string;
+    isBusy: boolean;
+    isCreatingDocumentFromNode: boolean;
+    errorMessage: string | null;
+    onCreateDocumentFromSelectedNode: () => Promise<void> | void;
+}
+
+function CanvasNodeActions({
+    selectedNodeTitle,
+    isBusy,
+    isCreatingDocumentFromNode,
+    errorMessage,
+    onCreateDocumentFromSelectedNode,
+}: CanvasNodeActionsProps) {
+    return (
+        <div className="tree-canvas-node-actions nodrag nopan">
+            <button
+                type="button"
+                className="tree-canvas-node-actions__button nodrag nopan"
+                onPointerDown={(event) => {
+                    event.stopPropagation();
+                }}
+                onDoubleClick={(event) => {
+                    event.stopPropagation();
+                }}
+                onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void onCreateDocumentFromSelectedNode();
+                }}
+                disabled={isBusy}
+                title={`Crear documento desde "${selectedNodeTitle}"`}
+            >
+                {isCreatingDocumentFromNode
+                    ? 'Creando documento…'
+                    : 'Crear doc desde nodo'}
+            </button>
+
+            {errorMessage ? (
+                <div className="tree-canvas-node-actions__error">
+                    {errorMessage}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 interface ViewportPersistenceBridgeProps {
     documentId: number;
     initialViewport: Viewport;
@@ -829,6 +883,9 @@ function TreeViewFocusBridge({
     return null;
 }
 
+
+
+
 export function RootTreePanel({
     snapshot,
     isSavingContent,
@@ -839,6 +896,8 @@ export function RootTreePanel({
     isUpdatingLearningStatusNodeId,
     isRenamingNodeId,
     isDeletingNodeId,
+    isCreatingDocumentFromNodeId,
+    createDocumentFromNodeErrorMessage,
     isSavingViewport,
     onSaveViewport,
     onAutosaveContent,
@@ -848,6 +907,7 @@ export function RootTreePanel({
     onSetNodeLearningStatus,
     onRenameNode,
     onDeleteLeafNode,
+    onCreateDocumentFromNode,
     onDetailsMaximizedChange,
 }: RootTreePanelProps) {
     const [draftTitle, setDraftTitle] = useState('');
@@ -984,7 +1044,7 @@ export function RootTreePanel({
         isUpdatingLearningStatusNodeId,
         isRenamingNodeId,
         isDeletingNodeId,
-    );
+    ) || isCreatingDocumentFromNodeId !== null;
 
     const persistPendingChanges = async () => {
         if (isTitleDirty && selectedNode) {
@@ -1252,6 +1312,29 @@ export function RootTreePanel({
         }
 
         await onDeleteLeafNode(selectedNode.id);
+    };
+
+    const handleCreateDocumentFromSelectedNode = async () => {
+        if (!snapshot || !selectedNode || treeBusy) {
+            return;
+        }
+
+        const confirmed = window.confirm(
+            `¿Crear un documento nuevo a partir de "${selectedNode.title}"?\n\nSe copiará este nodo con todos sus descendientes y se abrirá como documento independiente.`,
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        if (hasPendingChanges) {
+            await persistPendingChanges();
+        }
+
+        await onCreateDocumentFromNode(
+            snapshot.document.id,
+            selectedNode.id,
+        );
     };
 
     const handleOpenChildFromDetails = async (childNodeId: number) => {
@@ -1563,6 +1646,20 @@ export function RootTreePanel({
 
     const verticalTreeFocusKey = `${snapshot.document.id}:vertical:${treeViewFocusNodeId}:${verticalLayoutSignature}`;
 
+    const canvasNodeActions = selectedNode ? (
+        <CanvasNodeActions
+            selectedNodeTitle={selectedNode.title}
+            isBusy={treeBusy}
+            isCreatingDocumentFromNode={
+                isCreatingDocumentFromNodeId === selectedNode.id
+            }
+            errorMessage={createDocumentFromNodeErrorMessage}
+            onCreateDocumentFromSelectedNode={
+                handleCreateDocumentFromSelectedNode
+            }
+        />
+    ) : null;
+
 
 
     let saveStatusText = 'Todo guardado.';
@@ -1749,6 +1846,8 @@ export function RootTreePanel({
                                         className="tree-canvas"
                                         data-testid="tree-canvas"
                                     >
+                                        {canvasNodeActions}
+
                                         <ReactFlow
                                             nodes={flowModel.flowNodes}
                                             edges={flowModel.flowEdges}
@@ -1798,6 +1897,8 @@ export function RootTreePanel({
                                         className="tree-canvas tree-canvas--vertical"
                                         data-testid="tree-vertical"
                                     >
+                                        {canvasNodeActions}
+
                                         <ReactFlow
                                             nodes={verticalFlowModel.flowNodes}
                                             edges={verticalFlowModel.flowEdges}
@@ -1847,6 +1948,8 @@ export function RootTreePanel({
                                         className="tree-canvas tree-canvas--radial"
                                         data-testid="tree-radial"
                                     >
+                                        {canvasNodeActions}
+
                                         <ReactFlow
                                             nodes={radialFlowModel.flowNodes}
                                             edges={radialFlowModel.flowEdges}

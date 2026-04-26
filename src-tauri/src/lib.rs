@@ -31,6 +31,7 @@ pub fn run() {
             commands::documents::delete_leaf_node,
             commands::documents::delete_document,
             commands::documents::copy_document,
+            commands::documents::create_document_from_node,
             commands::documents::set_document_viewport
         ])
         .run(tauri::generate_context!())

@@ -30,6 +30,13 @@ pub struct CopyDocumentInput {
     pub source_document_id: i64,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDocumentFromNodeInput {
+    pub source_document_id: i64,
+    pub source_node_id: i64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateChildNodeInput {
@@ -161,6 +168,19 @@ pub fn copy_document(
         .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
 
     db.copy_document(input.source_document_id)
+}
+
+#[tauri::command]
+pub fn create_document_from_node(
+    input: CreateDocumentFromNodeInput,
+    state: State<'_, DatabaseState>,
+) -> Result<OpenDocumentSnapshotDto, String> {
+    let mut db = state
+        .db
+        .lock()
+        .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
+
+    db.create_document_from_node(input.source_document_id, input.source_node_id)
 }
 
 #[tauri::command]
