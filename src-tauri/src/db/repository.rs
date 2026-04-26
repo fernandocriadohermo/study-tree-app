@@ -164,6 +164,72 @@ impl Database {
         self.open_document(document_id)
     }
 
+        pub fn delete_document(
+        &mut self,
+        document_id: i64,
+    ) -> Result<Option<OpenDocumentSnapshotDto>, String> {
+        let transaction = self.connection.transaction().map_err(|error| {
+            format!("No se pudo iniciar la transacción de delete_document: {error}")
+        })?;
+
+        let document_exists = transaction
+            .query_row(
+                r#"
+                SELECT id
+                FROM documents
+                WHERE id = ?1
+                "#,
+                [document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|error| format!("No se pudo comprobar el documento {document_id}: {error}"))?;
+
+        if document_exists.is_none() {
+            return Ok(None);
+        }
+
+        transaction
+            .execute(
+                r#"
+                DELETE FROM documents
+                WHERE id = ?1
+                "#,
+                [document_id],
+            )
+            .map_err(|error| format!("No se pudo borrar el documento {document_id}: {error}"))?;
+
+        let next_document_id = transaction
+            .query_row(
+                r#"
+                SELECT id
+                FROM documents
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                "#,
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|error| {
+                format!("No se pudo seleccionar el siguiente documento tras borrar {document_id}: {error}")
+            })?;
+
+        if let Some(next_document_id) = next_document_id {
+            let now = now_ts();
+            update_last_opened_document_id(&transaction, next_document_id, now)?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|error| format!("No se pudo confirmar delete_document: {error}"))?;
+
+        match next_document_id {
+            Some(next_document_id) => self.load_document_snapshot(next_document_id),
+            None => Ok(None),
+        }
+    }
+
     pub fn update_node_content(
         &mut self,
         node_id: i64,

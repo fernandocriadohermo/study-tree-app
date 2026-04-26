@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { DocumentListItem } from '../../../shared/documents/contracts';
 
 interface DocumentsSidebarProps {
@@ -8,9 +8,11 @@ interface DocumentsSidebarProps {
     errorMessage: string | null;
     isCreating: boolean;
     isOpeningDocumentId: number | null;
+    isDeletingDocumentId: number | null;
     onRetry: () => void;
     onCreateDocument: (title: string) => Promise<void> | void;
     onOpenDocument: (documentId: number) => Promise<void> | void;
+    onDeleteDocument: (documentId: number) => Promise<void> | void;
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -26,13 +28,15 @@ export function DocumentsSidebar({
     errorMessage,
     isCreating,
     isOpeningDocumentId,
+    isDeletingDocumentId,
     onRetry,
     onCreateDocument,
     onOpenDocument,
+    onDeleteDocument,
 }: DocumentsSidebarProps) {
     const [draftTitle, setDraftTitle] = useState('');
 
-    const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
 
         const normalizedTitle = draftTitle.trim();
@@ -43,6 +47,21 @@ export function DocumentsSidebar({
 
         await onCreateDocument(normalizedTitle);
         setDraftTitle('');
+    };
+
+    const handleDeleteDocument = async (
+        documentId: number,
+        documentTitle: string,
+    ) => {
+        const confirmed = window.confirm(
+            `¿Borrar definitivamente el documento "${documentTitle}"?\n\nEsta acción eliminará todos sus nodos y contenidos. No se puede deshacer.`,
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        await onDeleteDocument(documentId);
     };
 
     return (
@@ -107,23 +126,41 @@ export function DocumentsSidebar({
                     {documents.map((document) => {
                         const isActive = activeDocumentId === document.id;
                         const isOpening = isOpeningDocumentId === document.id;
+                        const isDeleting = isDeletingDocumentId === document.id;
+                        const isAnyDocumentDeleting = isDeletingDocumentId !== null;
 
                         return (
                             <li key={document.id} className="documents-list__item">
-                                <button
-                                    type="button"
-                                    className={`documents-list__button${isActive ? ' is-active' : ''}`}
-                                    onClick={() => onOpenDocument(document.id)}
-                                    disabled={isOpening}
-                                >
-                                    <span className="documents-list__title">{document.title}</span>
-                                    <span className="documents-list__meta">
-                                        #{document.id} · {formatTimestamp(document.updatedAt)}
-                                    </span>
-                                    {isOpening ? (
-                                        <span className="documents-list__state">Abriendo…</span>
-                                    ) : null}
-                                </button>
+                                <div className="documents-list__row">
+                                    <button
+                                        type="button"
+                                        className={`documents-list__button${isActive ? ' is-active' : ''}`}
+                                        onClick={() => onOpenDocument(document.id)}
+                                        disabled={isOpening || isAnyDocumentDeleting}
+                                    >
+                                        <span className="documents-list__title">{document.title}</span>
+                                        <span className="documents-list__meta">
+                                            #{document.id} · {formatTimestamp(document.updatedAt)}
+                                        </span>
+                                        {isOpening ? (
+                                            <span className="documents-list__state">Abriendo…</span>
+                                        ) : null}
+                                        {isDeleting ? (
+                                            <span className="documents-list__state">Borrando…</span>
+                                        ) : null}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="documents-list__delete-button"
+                                        onClick={() => void handleDeleteDocument(document.id, document.title)}
+                                        disabled={isOpening || isAnyDocumentDeleting}
+                                        aria-label={`Borrar ${document.title}`}
+                                        title="Borrar documento"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
                             </li>
                         );
                     })}

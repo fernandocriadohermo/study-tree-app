@@ -217,6 +217,42 @@ textarea {
   min-width: 0;
 }
 
+.documents-list__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.documents-list__delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  min-height: 100%;
+  padding: 0;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.documents-list__delete-button:hover {
+  border-color: rgba(239, 68, 68, 0.48);
+  background: rgba(239, 68, 68, 0.2);
+  color: #ffffff;
+}
+
+.documents-list__delete-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .documents-list__button {
   display: block;
   width: 100%;

@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/documents/contracts';
 import { createChildNode } from '../api/createChildNode';
 import { createDocument } from '../api/createDocument';
+import { deleteDocument } from '../api/deleteDocument';
 import { deleteLeafNode } from '../api/deleteLeafNode';
 import { listDocuments } from '../api/listDocuments';
 import { openDocument } from '../api/openDocument';
@@ -49,6 +50,7 @@ export function useDocumentsHome() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isCreating, setIsCreating] = useState(false);
     const [isOpeningDocumentId, setIsOpeningDocumentId] = useState<number | null>(null);
+    const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<number | null>(null);
     const [isSavingContent, setIsSavingContent] = useState(false);
     const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
     const [isCreatingChild, setIsCreatingChild] = useState(false);
@@ -146,6 +148,47 @@ export function useDocumentsHome() {
             setIsOpeningDocumentId(null);
         }
     }, []);
+
+    const handleDeleteDocument = useCallback(async (documentId: number) => {
+        if (isDeletingDocumentId !== null) {
+            return;
+        }
+
+        setIsDeletingDocumentId(documentId);
+        setErrorMessage(null);
+        setSaveErrorMessage(null);
+
+        try {
+            const nextSnapshot = await deleteDocument(documentId);
+            const refreshedDocuments = await listDocuments();
+
+            setDocuments(refreshedDocuments);
+
+            setOpenedSnapshot((currentSnapshot) => {
+                if (!currentSnapshot) {
+                    return nextSnapshot;
+                }
+
+                if (currentSnapshot.document.id === documentId) {
+                    return nextSnapshot;
+                }
+
+                return currentSnapshot;
+            });
+
+            setStatus('ready');
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : 'No se pudo borrar el documento.';
+
+            setErrorMessage(message);
+            setStatus('error');
+        } finally {
+            setIsDeletingDocumentId(null);
+        }
+    }, [isDeletingDocumentId]);
 
     const handleAutosaveSelectedNodeContent = useCallback(
         async (note: string, body: string) => {
@@ -465,6 +508,7 @@ export function useDocumentsHome() {
         errorMessage,
         isCreating,
         isOpeningDocumentId,
+        isDeletingDocumentId,
         isSavingContent,
         saveErrorMessage,
         isCreatingChild,
@@ -478,6 +522,7 @@ export function useDocumentsHome() {
         loadDocuments,
         createDocument: handleCreateDocument,
         openDocument: handleOpenDocument,
+        deleteDocument: handleDeleteDocument,
         autosaveSelectedNodeContent: handleAutosaveSelectedNodeContent,
         createChildNode: handleCreateChildNode,
         selectNode: handleSelectNode,
