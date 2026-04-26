@@ -55,6 +55,43 @@ type VisualNodeSize = {
     height: number;
 };
 
+type VisualEdgeType = NonNullable<Edge['type']>;
+
+const VISUAL_EDGE_TYPE_HORIZONTAL: VisualEdgeType = 'bezier';
+const VISUAL_EDGE_TYPE_VERTICAL: VisualEdgeType = 'smoothstep';
+const VISUAL_EDGE_TYPE_RADIAL: VisualEdgeType = 'straight';
+
+// Para experimentar, copia una de estas líneas sobre la constante correspondiente:
+// const VISUAL_EDGE_TYPE_HORIZONTAL: VisualEdgeType = 'default';
+// const VISUAL_EDGE_TYPE_HORIZONTAL: VisualEdgeType = 'straight';
+// const VISUAL_EDGE_TYPE_HORIZONTAL: VisualEdgeType = 'smoothstep';
+// const VISUAL_EDGE_TYPE_HORIZONTAL: VisualEdgeType = 'step';
+// const VISUAL_EDGE_TYPE_HORIZONTAL: VisualEdgeType = 'simplebezier';
+// const VISUAL_EDGE_TYPE_VERTICAL: VisualEdgeType = 'default';
+// const VISUAL_EDGE_TYPE_VERTICAL: VisualEdgeType = 'straight';
+// const VISUAL_EDGE_TYPE_VERTICAL: VisualEdgeType = 'smoothstep';
+// const VISUAL_EDGE_TYPE_VERTICAL: VisualEdgeType = 'step';
+// const VISUAL_EDGE_TYPE_VERTICAL: VisualEdgeType = 'simplebezier';
+// const VISUAL_EDGE_TYPE_RADIAL: VisualEdgeType = 'default';
+// const VISUAL_EDGE_TYPE_RADIAL: VisualEdgeType = 'straight';
+// const VISUAL_EDGE_TYPE_RADIAL: VisualEdgeType = 'smoothstep';
+// const VISUAL_EDGE_TYPE_RADIAL: VisualEdgeType = 'step';
+// const VISUAL_EDGE_TYPE_RADIAL: VisualEdgeType = 'simplebezier';
+
+function getVisualEdgeType(
+    layoutDirection: VisualTreeLayoutDirection,
+): VisualEdgeType {
+    if (layoutDirection === 'radial') {
+        return VISUAL_EDGE_TYPE_RADIAL;
+    }
+
+    if (layoutDirection === 'vertical') {
+        return VISUAL_EDGE_TYPE_VERTICAL;
+    }
+
+    return VISUAL_EDGE_TYPE_HORIZONTAL;
+}
+
 type RadialAngleLayout = {
     node: NodeDto;
     depth: number;
@@ -923,7 +960,7 @@ export function buildVisualTree({
                 target: String(node.id),
                 sourceHandle: 'source',
                 targetHandle: 'target',
-                type: layoutDirection === 'radial' ? 'straight' : 'bezier',
+                type: getVisualEdgeType(layoutDirection),
                 className: isActiveConnection
                     ? 'is-active-connection'
                     : 'is-passive-connection',
