@@ -10,6 +10,12 @@ interface DocumentsSidebarProps {
     isOpeningDocumentId: number | null;
     isDeletingDocumentId: number | null;
     isCopyingDocumentId: number | null;
+    isImportingDocuments: boolean;
+    importDocumentsErrorMessage: string | null;
+    isExportingDocument: boolean;
+    exportDocumentErrorMessage: string | null;
+    onImportDocuments: () => Promise<void> | void;
+    onExportOpenedDocument: () => Promise<void> | void;
     onRetry: () => void;
     onCreateDocument: (title: string) => Promise<void> | void;
     onOpenDocument: (documentId: number) => Promise<void> | void;
@@ -23,6 +29,44 @@ function formatTimestamp(timestamp: number): string {
     });
 }
 
+function ImportDocumentIcon() {
+    return (
+        <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            className="documents-transfer-actions__icon"
+        >
+            <path
+                d="M8 1.75a.75.75 0 0 1 .75.75v6.19l1.72-1.72a.75.75 0 1 1 1.06 1.06l-3 3a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 0 1 1.06-1.06l1.72 1.72V2.5A.75.75 0 0 1 8 1.75Z"
+                fill="currentColor"
+            />
+            <path
+                d="M3.25 11.5a.75.75 0 0 1 .75.75v.5h8v-.5a.75.75 0 0 1 1.5 0v1.25a.75.75 0 0 1-.75.75h-9.5a.75.75 0 0 1-.75-.75v-1.25a.75.75 0 0 1 .75-.75Z"
+                fill="currentColor"
+            />
+        </svg>
+    );
+}
+
+function ExportDocumentIcon() {
+    return (
+        <svg
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            className="documents-transfer-actions__icon"
+        >
+            <path
+                d="M8 14.25a.75.75 0 0 1-.75-.75V7.31L5.53 9.03a.75.75 0 0 1-1.06-1.06l3-3a.75.75 0 0 1 1.06 0l3 3a.75.75 0 1 1-1.06 1.06L8.75 7.31v6.19a.75.75 0 0 1-.75.75Z"
+                fill="currentColor"
+            />
+            <path
+                d="M3.25 1.75h9.5a.75.75 0 0 1 .75.75v1.25a.75.75 0 0 1-1.5 0v-.5H4v.5a.75.75 0 0 1-1.5 0V2.5a.75.75 0 0 1 .75-.75Z"
+                fill="currentColor"
+            />
+        </svg>
+    );
+}
+
 export function DocumentsSidebar({
     documents,
     activeDocumentId,
@@ -32,6 +76,12 @@ export function DocumentsSidebar({
     isOpeningDocumentId,
     isDeletingDocumentId,
     isCopyingDocumentId,
+    isImportingDocuments,
+    importDocumentsErrorMessage,
+    isExportingDocument,
+    exportDocumentErrorMessage,
+    onImportDocuments,
+    onExportOpenedDocument,
     onRetry,
     onCreateDocument,
     onOpenDocument,
@@ -39,6 +89,9 @@ export function DocumentsSidebar({
     onCopyDocument,
 }: DocumentsSidebarProps) {
     const [draftTitle, setDraftTitle] = useState('');
+
+    const transferErrorMessage =
+        importDocumentsErrorMessage ?? exportDocumentErrorMessage;
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -102,6 +155,50 @@ export function DocumentsSidebar({
                     {isCreating ? 'Creando…' : 'Crear documento'}
                 </button>
             </form>
+
+            <div className="documents-transfer-panel">
+                <div
+                    className="documents-transfer-actions"
+                    aria-label="Importar o exportar documentos"
+                >
+                    <button
+                        type="button"
+                        className="documents-transfer-actions__button"
+                        onClick={() => void onImportDocuments()}
+                        disabled={isCreating || isImportingDocuments || isExportingDocument}
+                        title="Importar documento"
+                        aria-label="Importar documento"
+                    >
+                        <ImportDocumentIcon />
+                    </button>
+
+                    <button
+                        type="button"
+                        className="documents-transfer-actions__button"
+                        onClick={() => void onExportOpenedDocument()}
+                        disabled={
+                            activeDocumentId === null ||
+                            isCreating ||
+                            isImportingDocuments ||
+                            isExportingDocument
+                        }
+                        title={
+                            activeDocumentId === null
+                                ? 'Abre un documento para exportarlo'
+                                : 'Exportar documento'
+                        }
+                        aria-label="Exportar documento"
+                    >
+                        <ExportDocumentIcon />
+                    </button>
+                </div>
+
+                {transferErrorMessage ? (
+                    <div className="documents-transfer-actions__error">
+                        {transferErrorMessage}
+                    </div>
+                ) : null}
+            </div>
 
             {status === 'loading' ? (
                 <div className="documents-sidebar__status">Cargando documentos…</div>

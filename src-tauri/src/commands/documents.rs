@@ -1,7 +1,10 @@
 use serde::Deserialize;
 use tauri::State;
 
-use crate::db::models::{DocumentListItemDto, OpenDocumentSnapshotDto, SelectedNodeContentDto};
+use crate::db::models::{
+    DocumentListItemDto, ImportDocumentsFromFileResultDto, OpenDocumentSnapshotDto,
+    SelectedNodeContentDto,
+};
 use crate::db::DatabaseState;
 
 #[derive(Debug, Deserialize)]
@@ -22,6 +25,19 @@ pub struct UpdateNodeContentInput {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteDocumentInput {
     pub document_id: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDocumentsFromFileInput {
+    pub file_path: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDocumentToFileInput {
+    pub document_id: i64,
+    pub file_path: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -99,6 +115,32 @@ pub fn list_documents(state: State<'_, DatabaseState>) -> Result<Vec<DocumentLis
         .map_err(|_| "No se pudo bloquear la base de datos".to_string())?;
 
     db.list_documents()
+}
+
+#[tauri::command]
+pub fn import_documents_from_file(
+    input: ImportDocumentsFromFileInput,
+    state: State<'_, DatabaseState>,
+) -> Result<ImportDocumentsFromFileResultDto, String> {
+    let mut db = state
+        .db
+        .lock()
+        .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
+
+    db.import_documents_from_file(input.file_path)
+}
+
+#[tauri::command]
+pub fn export_document_to_file(
+    input: ExportDocumentToFileInput,
+    state: State<'_, DatabaseState>,
+) -> Result<(), String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
+
+    db.export_document_to_file(input.document_id, input.file_path)
 }
 
 #[tauri::command]

@@ -2571,6 +2571,71 @@ textarea {
   min-width: max-content;
 }
 
+.documents-transfer-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.72);
+}
+
+.documents-transfer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.documents-transfer-actions__button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(96, 165, 250, 0.36);
+  border-radius: 10px;
+  background: rgba(15, 35, 72, 0.58);
+  color: #bfdbfe;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.documents-transfer-actions__button:hover:not(:disabled) {
+  border-color: rgba(147, 197, 253, 0.82);
+  background: rgba(30, 64, 125, 0.78);
+  color: #f8fafc;
+  transform: translateY(-1px);
+}
+
+.documents-transfer-actions__button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.documents-transfer-actions__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.34;
+}
+
+.documents-transfer-actions__icon {
+  width: 17px;
+  height: 17px;
+}
+
+.documents-transfer-actions__error {
+  padding: 9px 10px;
+  border: 1px solid rgba(248, 113, 113, 0.42);
+  border-radius: 10px;
+  background: rgba(69, 10, 10, 0.82);
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 /* ___________________________________________________ @Media _________________________________________ */
 
 

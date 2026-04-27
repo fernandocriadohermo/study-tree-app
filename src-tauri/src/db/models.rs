@@ -32,6 +32,13 @@ pub struct NodeDto {
     pub updated_at: i64,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDocumentsFromFileResultDto {
+    pub imported_document_ids: Vec<i64>,
+    pub opened_snapshot: Option<OpenDocumentSnapshotDto>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentViewStateDto {

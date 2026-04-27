@@ -19,6 +19,9 @@ import { setNodeCollapsed } from '../api/setNodeCollapsed';
 import { setNodeLearningStatus } from '../api/setNodeLearningStatus';
 import { updateNodeContent } from '../api/updateNodeContent';
 import { setDocumentViewport } from '../api/setDocumentViewport';
+import { open as openDialog, save } from '@tauri-apps/plugin-dialog';
+import { exportDocumentToFile } from '../api/exportDocumentToFile';
+import { importDocumentsFromFile } from '../api/importDocumentsFromFile';
 
 type HomeStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -56,6 +59,16 @@ function upsertDocumentListItem(
     });
 }
 
+function buildSafeExportFileName(title: string): string {
+    const safeTitle = title
+        .trim()
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+        .replace(/\s+/g, ' ')
+        .slice(0, 120);
+
+    return `${safeTitle || 'documento'}.studytree`;
+}
+
 export function useDocumentsHome() {
     const [documents, setDocuments] = useState<DocumentListItem[]>([]);
     const [openedSnapshot, setOpenedSnapshot] =
@@ -65,6 +78,9 @@ export function useDocumentsHome() {
     const [isCreating, setIsCreating] = useState(false);
     const [isOpeningDocumentId, setIsOpeningDocumentId] = useState<number | null>(null);
     const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<number | null>(null);
+    const [isImportingDocuments, setIsImportingDocuments] = useState(false);
+    const [importDocumentsErrorMessage, setImportDocumentsErrorMessage] =
+        useState<string | null>(null);
     const [isCopyingDocumentId, setIsCopyingDocumentId] = useState<number | null>(null);
     const [isCreatingDocumentFromNodeId, setIsCreatingDocumentFromNodeId] = useState<number | null>(null);
     const [isSavingContent, setIsSavingContent] = useState(false);
@@ -77,6 +93,9 @@ export function useDocumentsHome() {
     const [isDeletingNodeId, setIsDeletingNodeId] = useState<number | null>(null);
     const [createDocumentFromNodeErrorMessage, setCreateDocumentFromNodeErrorMessage] = useState<string | null>(null);
     const [isSavingViewport] = useState(false);
+    const [isExportingDocument, setIsExportingDocument] = useState(false);
+    const [exportDocumentErrorMessage, setExportDocumentErrorMessage] =
+        useState<string | null>(null);
 
     const hasAttemptedAutoOpenRef = useRef(false);
 
@@ -282,6 +301,107 @@ export function useDocumentsHome() {
         },
         [],
     );
+
+    const handleImportDocumentsFromFile = useCallback(async () => {
+        setIsImportingDocuments(true);
+        setImportDocumentsErrorMessage(null);
+        setErrorMessage(null);
+        setSaveErrorMessage(null);
+
+        try {
+            const selectedFilePath = await openDialog({
+                title: 'Importar documentos',
+                multiple: false,
+                filters: [
+                    {
+                        name: 'Study Tree',
+                        extensions: ['studytree'],
+                    },
+                ],
+            });
+
+            if (!selectedFilePath) {
+                return;
+            }
+
+            const filePath = Array.isArray(selectedFilePath)
+                ? selectedFilePath[0]
+                : selectedFilePath;
+
+            if (!filePath) {
+                return;
+            }
+
+            const result = await importDocumentsFromFile(filePath);
+
+            const refreshedDocuments = await listDocuments();
+            setDocuments(refreshedDocuments);
+
+            if (result.openedSnapshot) {
+                setOpenedSnapshot(result.openedSnapshot);
+                setDocuments((current) =>
+                    upsertDocumentListItem(current, result.openedSnapshot!),
+                );
+            }
+
+            setStatus('ready');
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : typeof error === 'string'
+                        ? error
+                        : 'No se pudieron importar los documentos.';
+
+            setImportDocumentsErrorMessage(message);
+            setStatus('ready');
+        } finally {
+            setIsImportingDocuments(false);
+        }
+    }, []);
+
+    const handleExportOpenedDocument = useCallback(async () => {
+        if (!openedSnapshot) {
+            return;
+        }
+
+        setIsExportingDocument(true);
+        setExportDocumentErrorMessage(null);
+        setImportDocumentsErrorMessage(null);
+        setErrorMessage(null);
+        setSaveErrorMessage(null);
+        try {
+            const filePath = await save({
+                title: 'Exportar documento',
+                defaultPath: buildSafeExportFileName(openedSnapshot.document.title),
+                filters: [
+                    {
+                        name: 'Study Tree',
+                        extensions: ['studytree'],
+                    },
+                ],
+            });
+
+            if (!filePath) {
+                return;
+            }
+
+            await exportDocumentToFile(openedSnapshot.document.id, filePath);
+            setStatus('ready');
+        } catch (error) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : typeof error === 'string'
+                        ? error
+                        : 'No se pudo exportar el documento.';
+
+            setExportDocumentErrorMessage(message);
+            setStatus('ready');
+        } finally {
+            setIsExportingDocument(false);
+        }
+    }, [openedSnapshot]);
 
     const handleAutosaveSelectedNodeContent = useCallback(
         async (note: string, body: string) => {
@@ -617,6 +737,12 @@ export function useDocumentsHome() {
         isDeletingNodeId,
         hasDocuments: derived.hasDocuments,
         hasOpenedDocument: derived.hasOpenedDocument,
+        isExportingDocument,
+        exportDocumentErrorMessage,
+        isImportingDocuments,
+        importDocumentsErrorMessage,
+        importDocumentsFromFile: handleImportDocumentsFromFile,
+        exportOpenedDocument: handleExportOpenedDocument,
         loadDocuments,
         createDocument: handleCreateDocument,
         openDocument: handleOpenDocument,
@@ -632,5 +758,6 @@ export function useDocumentsHome() {
         deleteLeafNode: handleDeleteLeafNode,
         isSavingViewport,
         saveViewport,
+
     };
 }

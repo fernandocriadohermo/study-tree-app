@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use super::migrations::apply_migrations;
 use super::models::{
     DocumentDto, DocumentListItemDto, DocumentViewStateDto, NodeDto, OpenDocumentSnapshotDto,
-    SelectedNodeContentDto,
+    SelectedNodeContentDto, ImportDocumentsFromFileResultDto,
 };
 
 #[derive(Clone)]
@@ -330,6 +330,309 @@ impl Database {
             .map_err(|error| format!("No se pudo confirmar copy_document: {error}"))?;
 
         self.load_document_snapshot(copied_document_id)
+    }
+
+    pub fn import_documents_from_file(
+        &mut self,
+        file_path: String,
+    ) -> Result<ImportDocumentsFromFileResultDto, String> {
+        let normalized_file_path = file_path.trim();
+
+        if normalized_file_path.is_empty() {
+            return Err("La ruta de importación no puede estar vacía.".to_string());
+        }
+
+        if !std::path::Path::new(normalized_file_path).exists() {
+            return Err(format!(
+                "No existe el archivo de importación \"{normalized_file_path}\"."
+            ));
+        }
+
+        let export_connection = Connection::open(normalized_file_path).map_err(|error| {
+            format!(
+                "No se pudo abrir el archivo .studytree \"{normalized_file_path}\": {error}"
+            )
+        })?;
+
+        export_connection
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|error| {
+                format!("No se pudo activar foreign_keys en el archivo .studytree: {error}")
+            })?;
+
+        validate_study_tree_export_file(&export_connection)?;
+
+        let export_documents = read_export_documents_for_import(&export_connection)?;
+
+        if export_documents.is_empty() {
+            return Err("El archivo .studytree no contiene documentos.".to_string());
+        }
+
+        let now = now_ts();
+
+        let transaction = self.connection.transaction().map_err(|error| {
+            format!("No se pudo iniciar la transacción de importación: {error}")
+        })?;
+
+        let mut imported_document_ids = Vec::<i64>::new();
+        let mut last_imported_document_id: Option<i64> = None;
+
+        for export_document in export_documents {
+            let normalized_title = normalize_node_title(export_document.title.clone())?;
+            let imported_document_id = insert_document(&transaction, &normalized_title, now)?;
+
+            let export_nodes = read_ordered_export_nodes_for_import(
+                &export_connection,
+                export_document.export_document_id,
+            )?;
+
+            if export_nodes.is_empty() {
+                return Err(format!(
+                    "El documento exportado {} no contiene nodos.",
+                    export_document.export_document_id
+                ));
+            }
+
+            let mut imported_node_id_by_export_node_id =
+                std::collections::HashMap::<i64, i64>::new();
+
+            let mut imported_root_node_id: Option<i64> = None;
+
+            for export_node in export_nodes {
+                let imported_parent_node_id = match export_node.export_parent_node_id {
+                    Some(export_parent_node_id) => Some(
+                        imported_node_id_by_export_node_id
+                            .get(&export_parent_node_id)
+                            .copied()
+                            .ok_or_else(|| {
+                                format!(
+                                    "No se pudo importar el nodo {} porque su padre exportado {} todavía no fue importado.",
+                                    export_node.export_node_id,
+                                    export_parent_node_id
+                                )
+                            })?,
+                    ),
+                    None => None,
+                };
+
+                let is_imported_root = imported_parent_node_id.is_none();
+
+                let imported_sibling_order = if is_imported_root {
+                    0
+                } else {
+                    export_node.sibling_order
+                };
+
+                let imported_is_collapsed = if is_imported_root {
+                    false
+                } else {
+                    export_node.is_collapsed
+                };
+
+                let imported_node_id = insert_copied_node(
+                    &transaction,
+                    imported_document_id,
+                    imported_parent_node_id,
+                    &export_node.title,
+                    &export_node.learning_status,
+                    imported_is_collapsed,
+                    imported_sibling_order,
+                    now,
+                )?;
+
+                insert_copied_node_content(
+                    &transaction,
+                    imported_node_id,
+                    export_node.note.as_deref(),
+                    &export_node.body,
+                    now,
+                )?;
+
+                if is_imported_root {
+                    imported_root_node_id = Some(imported_node_id);
+                }
+
+                imported_node_id_by_export_node_id
+                    .insert(export_node.export_node_id, imported_node_id);
+            }
+
+            let imported_root_node_id = imported_root_node_id.ok_or_else(|| {
+                format!(
+                    "No se pudo resolver el root importado del documento {}.",
+                    export_document.export_document_id
+                )
+            })?;
+
+            update_document_view_state_selection(
+                &transaction,
+                imported_document_id,
+                imported_root_node_id,
+                now,
+            )?;
+
+            imported_document_ids.push(imported_document_id);
+            last_imported_document_id = Some(imported_document_id);
+        }
+
+        if let Some(last_document_id) = last_imported_document_id {
+            update_last_opened_document_id(&transaction, last_document_id, now)?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|error| format!("No se pudo confirmar la importación: {error}"))?;
+
+        let opened_snapshot = match last_imported_document_id {
+            Some(document_id) => self.load_document_snapshot(document_id)?,
+            None => None,
+        };
+
+        Ok(ImportDocumentsFromFileResultDto {
+            imported_document_ids,
+            opened_snapshot,
+        })
+    }
+
+        pub fn export_document_to_file(
+        &self,
+        document_id: i64,
+        file_path: String,
+    ) -> Result<(), String> {
+        let normalized_file_path = file_path.trim();
+
+        if normalized_file_path.is_empty() {
+            return Err("La ruta de exportación no puede estar vacía.".to_string());
+        }
+
+        let document_exists = self
+            .connection
+            .query_row(
+                r#"
+                SELECT id
+                FROM documents
+                WHERE id = ?1
+                "#,
+                [document_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|error| {
+                format!("No se pudo comprobar el documento {document_id}: {error}")
+            })?;
+
+        if document_exists.is_none() {
+            return Err(format!("No existe el documento {document_id}."));
+        }
+
+        if std::path::Path::new(normalized_file_path).exists() {
+            std::fs::remove_file(normalized_file_path).map_err(|error| {
+                format!(
+                    "No se pudo reemplazar el archivo de exportación \"{normalized_file_path}\": {error}"
+                )
+            })?;
+        }
+
+        let mut export_connection = Connection::open(normalized_file_path).map_err(|error| {
+            format!(
+                "No se pudo crear el archivo de exportación \"{normalized_file_path}\": {error}"
+            )
+        })?;
+
+        export_connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = ON;
+                PRAGMA journal_mode = DELETE;
+                PRAGMA synchronous = FULL;
+
+                CREATE TABLE export_metadata (
+                  singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                  format TEXT NOT NULL CHECK (format = 'study-tree-export'),
+                  version INTEGER NOT NULL CHECK (version = 1),
+                  exported_at INTEGER NOT NULL CHECK (exported_at >= 0)
+                ) STRICT;
+
+                CREATE TABLE export_documents (
+                  export_document_id INTEGER PRIMARY KEY,
+                  original_document_id INTEGER NOT NULL,
+                  title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+                  created_at INTEGER NOT NULL CHECK (created_at >= 0),
+                  updated_at INTEGER NOT NULL CHECK (updated_at >= created_at)
+                ) STRICT;
+
+                CREATE TABLE export_nodes (
+                  export_node_id INTEGER PRIMARY KEY,
+                  export_document_id INTEGER NOT NULL,
+                  original_node_id INTEGER NOT NULL,
+                  export_parent_node_id INTEGER NULL,
+                  title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+                  learning_status TEXT NOT NULL CHECK (
+                    learning_status IN ('sin_ver', 'visto', 'en_estudio', 'dominado')
+                  ),
+                  is_collapsed INTEGER NOT NULL CHECK (is_collapsed IN (0, 1)),
+                  sibling_order INTEGER NOT NULL CHECK (sibling_order >= 0),
+                  created_at INTEGER NOT NULL CHECK (created_at >= 0),
+                  updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+                  FOREIGN KEY (export_document_id) REFERENCES export_documents(export_document_id) ON DELETE CASCADE,
+                  FOREIGN KEY (export_parent_node_id) REFERENCES export_nodes(export_node_id) ON DELETE CASCADE
+                ) STRICT;
+
+                CREATE TABLE export_node_content (
+                  export_node_id INTEGER PRIMARY KEY,
+                  note TEXT DEFAULT NULL,
+                  body TEXT NOT NULL DEFAULT '',
+                  created_at INTEGER NOT NULL CHECK (created_at >= 0),
+                  updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+                  FOREIGN KEY (export_node_id) REFERENCES export_nodes(export_node_id) ON DELETE CASCADE
+                ) STRICT;
+
+                CREATE UNIQUE INDEX idx_export_nodes_original_node
+                  ON export_nodes(export_document_id, original_node_id);
+
+                CREATE UNIQUE INDEX idx_export_nodes_one_root_per_document
+                  ON export_nodes(export_document_id)
+                  WHERE export_parent_node_id IS NULL;
+                "#,
+            )
+            .map_err(|error| {
+                format!("No se pudo inicializar el archivo .studytree: {error}")
+            })?;
+
+        let export_transaction = export_connection.transaction().map_err(|error| {
+            format!("No se pudo iniciar la transacción de exportación: {error}")
+        })?;
+
+        let now = now_ts();
+
+        export_transaction
+            .execute(
+                r#"
+                INSERT INTO export_metadata (
+                  singleton_id,
+                  format,
+                  version,
+                  exported_at
+                )
+                VALUES (1, 'study-tree-export', 1, ?1)
+                "#,
+                [now],
+            )
+            .map_err(|error| {
+                format!("No se pudo escribir export_metadata: {error}")
+            })?;
+
+        export_document_into_transaction(
+            &self.connection,
+            &export_transaction,
+            document_id,
+            1,
+        )?;
+
+        export_transaction
+            .commit()
+            .map_err(|error| format!("No se pudo confirmar la exportación: {error}"))?;
+
+        Ok(())
     }
 
     pub fn create_document_from_node(
@@ -1843,6 +2146,470 @@ fn insert_copied_node_content(
         })?;
 
     Ok(())
+}
+
+fn export_document_into_transaction(
+    source_connection: &Connection,
+    export_transaction: &Transaction<'_>,
+    source_document_id: i64,
+    export_document_id: i64,
+) -> Result<(), String> {
+    let document = source_connection
+        .query_row(
+            r#"
+            SELECT title, created_at, updated_at
+            FROM documents
+            WHERE id = ?1
+            "#,
+            [source_document_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| {
+            format!(
+                "No se pudo leer el documento {source_document_id} para exportar: {error}"
+            )
+        })?
+        .ok_or_else(|| format!("No existe el documento {source_document_id}."))?;
+
+    export_transaction
+        .execute(
+            r#"
+            INSERT INTO export_documents (
+              export_document_id,
+              original_document_id,
+              title,
+              created_at,
+              updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            params![
+                export_document_id,
+                source_document_id,
+                document.0,
+                document.1,
+                document.2
+            ],
+        )
+        .map_err(|error| {
+            format!("No se pudo insertar export_documents: {error}")
+        })?;
+
+    let mut node_statement = source_connection
+        .prepare(
+            r#"
+            SELECT
+              id,
+              parent_id,
+              title,
+              learning_status,
+              is_collapsed,
+              sibling_order,
+              created_at,
+              updated_at
+            FROM nodes
+            WHERE document_id = ?1
+            ORDER BY
+              CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END,
+              parent_id ASC,
+              sibling_order ASC,
+              id ASC
+            "#,
+        )
+        .map_err(|error| {
+            format!(
+                "No se pudo preparar la lectura de nodos del documento {source_document_id}: {error}"
+            )
+        })?;
+
+    let node_rows = node_statement
+        .query_map([source_document_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+            ))
+        })
+        .map_err(|error| {
+            format!(
+                "No se pudieron consultar los nodos del documento {source_document_id}: {error}"
+            )
+        })?;
+
+    let mut exported_node_id_by_original_node_id = std::collections::HashMap::<i64, i64>::new();
+
+    for node_row in node_rows {
+        let (
+            original_node_id,
+            original_parent_node_id,
+            title,
+            learning_status,
+            is_collapsed,
+            sibling_order,
+            created_at,
+            updated_at,
+        ) = node_row.map_err(|error| {
+            format!(
+                "No se pudo leer un nodo del documento {source_document_id}: {error}"
+            )
+        })?;
+
+        let export_parent_node_id = match original_parent_node_id {
+            Some(parent_node_id) => Some(
+                exported_node_id_by_original_node_id
+                    .get(&parent_node_id)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "No se pudo exportar el nodo {original_node_id}: el padre {parent_node_id} no fue exportado antes."
+                        )
+                    })?,
+            ),
+            None => None,
+        };
+
+        let export_node_id = original_node_id;
+
+        export_transaction
+            .execute(
+                r#"
+                INSERT INTO export_nodes (
+                  export_node_id,
+                  export_document_id,
+                  original_node_id,
+                  export_parent_node_id,
+                  title,
+                  learning_status,
+                  is_collapsed,
+                  sibling_order,
+                  created_at,
+                  updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "#,
+                params![
+                    export_node_id,
+                    export_document_id,
+                    original_node_id,
+                    export_parent_node_id,
+                    title,
+                    learning_status,
+                    is_collapsed,
+                    sibling_order,
+                    created_at,
+                    updated_at
+                ],
+            )
+            .map_err(|error| {
+                format!(
+                    "No se pudo insertar export_nodes para el nodo {original_node_id}: {error}"
+                )
+            })?;
+
+        let content = source_connection
+            .query_row(
+                r#"
+                SELECT note, body, created_at, updated_at
+                FROM node_content
+                WHERE node_id = ?1
+                "#,
+                [original_node_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|error| {
+                format!(
+                    "No se pudo leer node_content del nodo {original_node_id}: {error}"
+                )
+            })?
+            .unwrap_or_else(|| (None, String::new(), created_at, updated_at));
+
+        export_transaction
+            .execute(
+                r#"
+                INSERT INTO export_node_content (
+                  export_node_id,
+                  note,
+                  body,
+                  created_at,
+                  updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                "#,
+                params![
+                    export_node_id,
+                    content.0,
+                    content.1,
+                    content.2,
+                    content.3
+                ],
+            )
+            .map_err(|error| {
+                format!(
+                    "No se pudo insertar export_node_content para el nodo {original_node_id}: {error}"
+                )
+            })?;
+
+        exported_node_id_by_original_node_id.insert(original_node_id, export_node_id);
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ExportDocumentForImport {
+    export_document_id: i64,
+    title: String,
+}
+
+#[derive(Debug)]
+struct ExportNodeForImport {
+    export_node_id: i64,
+    export_parent_node_id: Option<i64>,
+    title: String,
+    learning_status: String,
+    is_collapsed: bool,
+    sibling_order: i64,
+    note: Option<String>,
+    body: String,
+}
+
+fn validate_study_tree_export_file(export_connection: &Connection) -> Result<(), String> {
+    let metadata = export_connection
+        .query_row(
+            r#"
+            SELECT format, version
+            FROM export_metadata
+            WHERE singleton_id = 1
+            "#,
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()
+        .map_err(|error| {
+            format!("No se pudo leer export_metadata del archivo .studytree: {error}")
+        })?
+        .ok_or_else(|| {
+            "El archivo .studytree no contiene metadata de exportación.".to_string()
+        })?;
+
+    if metadata.0 != "study-tree-export" {
+        return Err(format!(
+            "Formato de archivo no soportado: {}.",
+            metadata.0
+        ));
+    }
+
+    if metadata.1 != 1 {
+        return Err(format!(
+            "Versión de archivo .studytree no soportada: {}.",
+            metadata.1
+        ));
+    }
+
+    Ok(())
+}
+
+fn read_export_documents_for_import(
+    export_connection: &Connection,
+) -> Result<Vec<ExportDocumentForImport>, String> {
+    let mut statement = export_connection
+        .prepare(
+            r#"
+            SELECT export_document_id, title
+            FROM export_documents
+            ORDER BY export_document_id ASC
+            "#,
+        )
+        .map_err(|error| {
+            format!("No se pudo preparar la lectura de export_documents: {error}")
+        })?;
+
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ExportDocumentForImport {
+                export_document_id: row.get(0)?,
+                title: row.get(1)?,
+            })
+        })
+        .map_err(|error| {
+            format!("No se pudieron consultar export_documents: {error}")
+        })?;
+
+    let mut documents = Vec::new();
+
+    for row in rows {
+        documents.push(row.map_err(|error| {
+            format!("No se pudo leer una fila de export_documents: {error}")
+        })?);
+    }
+
+    Ok(documents)
+}
+
+fn read_ordered_export_nodes_for_import(
+    export_connection: &Connection,
+    export_document_id: i64,
+) -> Result<Vec<ExportNodeForImport>, String> {
+    let root_count = export_connection
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM export_nodes
+            WHERE export_document_id = ?1
+              AND export_parent_node_id IS NULL
+            "#,
+            [export_document_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| {
+            format!(
+                "No se pudo contar roots del documento exportado {export_document_id}: {error}"
+            )
+        })?;
+
+    if root_count != 1 {
+        return Err(format!(
+            "El documento exportado {export_document_id} debe tener exactamente un root, pero tiene {root_count}."
+        ));
+    }
+
+    let total_node_count = export_connection
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM export_nodes
+            WHERE export_document_id = ?1
+            "#,
+            [export_document_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| {
+            format!(
+                "No se pudo contar nodos del documento exportado {export_document_id}: {error}"
+            )
+        })?;
+
+    let mut statement = export_connection
+        .prepare(
+            r#"
+            WITH RECURSIVE ordered_nodes (
+              export_node_id,
+              export_parent_node_id,
+              title,
+              learning_status,
+              is_collapsed,
+              sibling_order,
+              depth,
+              sort_path
+            ) AS (
+              SELECT
+                export_node_id,
+                export_parent_node_id,
+                title,
+                learning_status,
+                is_collapsed,
+                sibling_order,
+                0 AS depth,
+                printf('%012d', sibling_order) || '-' || printf('%012d', export_node_id) AS sort_path
+              FROM export_nodes
+              WHERE export_document_id = ?1
+                AND export_parent_node_id IS NULL
+
+              UNION ALL
+
+              SELECT
+                child.export_node_id,
+                child.export_parent_node_id,
+                child.title,
+                child.learning_status,
+                child.is_collapsed,
+                child.sibling_order,
+                ordered_nodes.depth + 1 AS depth,
+                ordered_nodes.sort_path || '/' || printf('%012d', child.sibling_order) || '-' || printf('%012d', child.export_node_id) AS sort_path
+              FROM export_nodes child
+              INNER JOIN ordered_nodes
+                ON ordered_nodes.export_node_id = child.export_parent_node_id
+              WHERE child.export_document_id = ?1
+            )
+            SELECT
+              ordered_nodes.export_node_id,
+              ordered_nodes.export_parent_node_id,
+              ordered_nodes.title,
+              ordered_nodes.learning_status,
+              ordered_nodes.is_collapsed,
+              ordered_nodes.sibling_order,
+              export_node_content.note,
+              export_node_content.body
+            FROM ordered_nodes
+            INNER JOIN export_node_content
+              ON export_node_content.export_node_id = ordered_nodes.export_node_id
+            ORDER BY ordered_nodes.depth ASC, ordered_nodes.sort_path ASC
+            "#,
+        )
+        .map_err(|error| {
+            format!(
+                "No se pudo preparar la lectura ordenada de nodos exportados para {export_document_id}: {error}"
+            )
+        })?;
+
+    let rows = statement
+        .query_map([export_document_id], |row| {
+            let is_collapsed_int: i64 = row.get(4)?;
+
+            Ok(ExportNodeForImport {
+                export_node_id: row.get(0)?,
+                export_parent_node_id: row.get(1)?,
+                title: row.get(2)?,
+                learning_status: row.get(3)?,
+                is_collapsed: is_collapsed_int == 1,
+                sibling_order: row.get(5)?,
+                note: row.get(6)?,
+                body: row.get(7)?,
+            })
+        })
+        .map_err(|error| {
+            format!(
+                "No se pudieron consultar los nodos exportados del documento {export_document_id}: {error}"
+            )
+        })?;
+
+    let mut nodes = Vec::new();
+
+    for row in rows {
+        nodes.push(row.map_err(|error| {
+            format!(
+                "No se pudo leer un nodo exportado del documento {export_document_id}: {error}"
+            )
+        })?);
+    }
+
+    if nodes.len() as i64 != total_node_count {
+        return Err(format!(
+            "El documento exportado {export_document_id} tiene nodos no alcanzables desde el root o una jerarquía inválida."
+        ));
+    }
+
+    Ok(nodes)
 }
 
 fn insert_document(transaction: &Transaction<'_>, title: &str, now: i64) -> Result<i64, String> {

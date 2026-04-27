@@ -26,12 +26,14 @@ interface RootTreePanelProps {
     snapshot: OpenDocumentSnapshotDto | null;
     isSavingContent: boolean;
     saveErrorMessage: string | null;
+
     isCreatingChild: boolean;
     isSelectingNodeId: number | null;
     isTogglingCollapseNodeId: number | null;
     isUpdatingLearningStatusNodeId: number | null;
     isRenamingNodeId: number | null;
     isDeletingNodeId: number | null;
+
     onAutosaveContent: (note: string, body: string) => Promise<void> | void;
     onCreateChildNode: (parentNodeId: number, title: string) => Promise<void> | void;
     onSelectNode: (nodeId: number) => Promise<void> | void;
@@ -895,6 +897,7 @@ export function RootTreePanel({
     isCreatingDocumentFromNodeId,
     createDocumentFromNodeErrorMessage,
     isSavingViewport,
+
     onSaveViewport,
     onAutosaveContent,
     onCreateChildNode,
@@ -1740,6 +1743,7 @@ export function RootTreePanel({
                         >
                             Renombrar documento
                         </button>
+
                     </div>
                 </header>
             ) : null}

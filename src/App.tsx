@@ -28,12 +28,17 @@ export default function App() {
     isCreatingDocumentFromNodeId,
     createDocumentFromNodeErrorMessage,
     isSavingViewport,
-    saveViewport,
+    isImportingDocuments,
+    importDocumentsErrorMessage,
+    isExportingDocument,
+    exportDocumentErrorMessage,
     loadDocuments,
     createDocument,
     openDocument,
     deleteDocument,
     copyDocument,
+    importDocumentsFromFile,
+    exportOpenedDocument,
     autosaveSelectedNodeContent,
     createChildNode,
     selectNode,
@@ -42,6 +47,7 @@ export default function App() {
     renameNode,
     deleteLeafNode,
     createDocumentFromNode,
+    saveViewport,
   } = useDocumentsHome();
 
   return (
@@ -56,11 +62,17 @@ export default function App() {
           isOpeningDocumentId={isOpeningDocumentId}
           isDeletingDocumentId={isDeletingDocumentId}
           isCopyingDocumentId={isCopyingDocumentId}
-          onCopyDocument={copyDocument}
+          isImportingDocuments={isImportingDocuments}
+          importDocumentsErrorMessage={importDocumentsErrorMessage}
+          isExportingDocument={isExportingDocument}
+          exportDocumentErrorMessage={exportDocumentErrorMessage}
+          onImportDocuments={importDocumentsFromFile}
+          onExportOpenedDocument={exportOpenedDocument}
           onRetry={loadDocuments}
           onCreateDocument={createDocument}
           onOpenDocument={openDocument}
           onDeleteDocument={deleteDocument}
+          onCopyDocument={copyDocument}
         />
       ) : null}
 

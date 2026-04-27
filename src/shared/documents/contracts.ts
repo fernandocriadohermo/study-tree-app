@@ -55,3 +55,8 @@ export interface SetDocumentViewportInputDto {
     panY: number;
     zoom: number;
 }
+
+export interface ImportDocumentsFromFileResultDto {
+    importedDocumentIds: number[];
+    openedSnapshot: OpenDocumentSnapshotDto | null;
+}
