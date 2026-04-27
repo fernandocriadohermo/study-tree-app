@@ -1046,6 +1046,25 @@ export function RootTreePanel({
         isDeletingNodeId,
     ) || isCreatingDocumentFromNodeId !== null;
 
+    const treeBusyReason =
+        isSavingContent
+            ? 'isSavingContent'
+            : isCreatingChild
+                ? 'isCreatingChild'
+                : isSelectingNodeId !== null
+                    ? `isSelectingNodeId=${isSelectingNodeId}`
+                    : isTogglingCollapseNodeId !== null
+                        ? `isTogglingCollapseNodeId=${isTogglingCollapseNodeId}`
+                        : isUpdatingLearningStatusNodeId !== null
+                            ? `isUpdatingLearningStatusNodeId=${isUpdatingLearningStatusNodeId}`
+                            : isRenamingNodeId !== null
+                                ? `isRenamingNodeId=${isRenamingNodeId}`
+                                : isDeletingNodeId !== null
+                                    ? `isDeletingNodeId=${isDeletingNodeId}`
+                                    : isCreatingDocumentFromNodeId !== null
+                                        ? `isCreatingDocumentFromNodeId=${isCreatingDocumentFromNodeId}`
+                                        : null;
+
     const persistPendingChanges = async () => {
         if (isTitleDirty && selectedNode) {
             await onRenameNode(selectedNode.id, normalizedDraftTitle);
@@ -1731,6 +1750,12 @@ export function RootTreePanel({
                             Selección activa: nodo #{selectedNodeId}
                         </div>
 
+                        {treeBusyReason ? (
+                            <div className="root-tree-panel__selection">
+                                Bloqueo activo: {treeBusyReason}
+                            </div>
+                        ) : null}
+
                         <button
                             type="button"
                             className="root-tree-panel__header-action-button"
@@ -1988,17 +2013,27 @@ export function RootTreePanel({
                                         </ReactFlow>
                                     </div>
                                 ) : (
-                                    <TreeOutline
-                                        nodes={visualModeNodes}
-                                        rootNodeId={snapshot.rootNodeId}
-                                        selectedNodeId={selectedNodeId}
-                                        isBusy={treeBusy}
-                                        onSelectNode={handleSelectNodeFromCanvas}
-                                        onOpenDetailsWorkspace={handleOpenDetailsWorkspaceFromCanvas}
-                                        onToggleCollapse={handleToggleNodeCollapseFromCanvas}
-                                        onCreateChild={handleQuickCreateChildFromCanvas}
-                                        onDeleteLeaf={handleQuickDeleteLeafFromCanvas}
-                                    />
+                                    <div
+                                        className="tree-canvas tree-canvas--outline"
+                                        data-testid="tree-outline-canvas"
+                                    >
+                                        <div
+                                            className="tree-outline-scroll"
+                                            data-testid="tree-outline-scroll"
+                                        >
+                                            <TreeOutline
+                                                nodes={visualModeNodes}
+                                                rootNodeId={snapshot.rootNodeId}
+                                                selectedNodeId={selectedNodeId}
+                                                isBusy={treeBusy}
+                                                onSelectNode={handleSelectNodeFromCanvas}
+                                                onOpenDetailsWorkspace={handleOpenDetailsWorkspaceFromCanvas}
+                                                onToggleCollapse={handleToggleNodeCollapseFromCanvas}
+                                                onCreateChild={handleQuickCreateChildFromCanvas}
+                                                onDeleteLeaf={handleQuickDeleteLeafFromCanvas}
+                                            />
+                                        </div>
+                                    </div>
                                 )}
                             </section>
                         </div>

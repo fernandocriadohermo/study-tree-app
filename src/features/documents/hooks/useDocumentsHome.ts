@@ -339,6 +339,7 @@ export function useDocumentsHome() {
 
             try {
                 const snapshot = await createChildNode(parentNodeId, title);
+
                 setOpenedSnapshot(snapshot);
                 setDocuments((current) => upsertDocumentListItem(current, snapshot));
                 setStatus('ready');
@@ -346,14 +347,12 @@ export function useDocumentsHome() {
                 const message =
                     error instanceof Error
                         ? error.message
-                        : typeof error === 'string'
-                            ? error
-                            : 'No se pudo crear el documento desde el nodo.';
+                        : 'No se pudo crear el nodo hijo.';
 
-                setCreateDocumentFromNodeErrorMessage(message);
-                setStatus('ready');
+                setErrorMessage(message);
+                setStatus('error');
             } finally {
-                setIsCreatingDocumentFromNodeId(null);
+                setIsCreatingChild(false);
             }
         },
         [],

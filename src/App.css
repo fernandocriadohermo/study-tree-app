@@ -2519,6 +2519,54 @@ textarea {
   cursor: wait;
 }
 
+.tree-canvas-card {
+  min-height: 0;
+}
+
+.root-tree-panel,
+.root-tree-panel__body,
+.root-tree-panel__canvas-column,
+.tree-canvas-card {
+  min-height: 0;
+}
+
+.root-tree-panel__body--canvas-maximized {
+  min-height: 0;
+}
+
+.tree-canvas-card {
+  overflow: hidden;
+}
+
+.tree-canvas--outline {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tree-canvas--outline .tree-outline-scroll {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 12px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.tree-canvas--outline .tree-outline {
+  width: max-content;
+  min-width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.tree-canvas--outline .tree-outline__list {
+  min-width: max-content;
+}
+
 /* ___________________________________________________ @Media _________________________________________ */
 
 
