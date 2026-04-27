@@ -240,14 +240,10 @@ function sortBySiblingOrder(nodes: NodeDto[]): NodeDto[] {
 
 function getKindLabel(depth: number): string {
     if (depth === 0) {
-        return 'Root';
+        return 'Raíz';
     }
 
-    if (depth === 1) {
-        return 'Hijo';
-    }
-
-    return 'Nieto';
+    return `Nivel ${depth}`;
 }
 
 function buildChildrenByParentId(nodes: NodeDto[]): Map<number, NodeDto[]> {

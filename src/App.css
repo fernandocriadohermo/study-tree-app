@@ -367,6 +367,10 @@ textarea {
 .root-tree-panel__selection {
   font-size: 12px;
   color: var(--muted);
+  max-width: min(48vw, 720px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .root-tree-panel__header-actions {

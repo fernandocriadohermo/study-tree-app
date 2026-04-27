@@ -118,14 +118,10 @@ function sortBySiblingOrder(nodes: NodeDto[]): NodeDto[] {
 
 function getNodeKindLabel(depth: number): string {
     if (depth === 0) {
-        return 'Root';
+        return 'Raíz';
     }
 
-    if (depth === 1) {
-        return 'Hijo';
-    }
-
-    return 'Nieto';
+    return `Nivel ${depth}`;
 }
 
 function getNodeDepth(node: NodeDto, nodesById: Map<number, NodeDto>): number {
@@ -372,7 +368,7 @@ function StudyTreeCanvasNode({
     const isVerticalLayout = data.layoutDirection === 'vertical';
     const isRadialLayout = data.layoutDirection === 'radial';
     const isCompactLayout = data.isCompactLayout ?? isRadialLayout;
-    const isRootNode = data.kindLabel === 'Root';
+    const isRootNode = data.kindLabel === 'Raíz';
 
     const targetHandlePosition = isRadialLayout
         ? Position.Top
@@ -537,7 +533,7 @@ function StudyTreeCanvasNode({
             >
                 <div
                     className={`root-tree-node nodrag nopan root-tree-node--${data.learningStatus}${isRadialLayout ? ' root-tree-node--radial' : ''}${isRootNode ? ' root-tree-node--root' : ''}${data.isActive ? ' is-selected' : ''}`}
-                    data-testid={data.kindLabel === 'Root' ? 'root-tree-node' : undefined}
+                    data-testid={data.kindLabel === 'Raíz' ? 'root-tree-node' : undefined}
                     data-selected={data.isActive ? 'true' : 'false'}
                 >
 
@@ -1046,24 +1042,7 @@ export function RootTreePanel({
         isDeletingNodeId,
     ) || isCreatingDocumentFromNodeId !== null;
 
-    const treeBusyReason =
-        isSavingContent
-            ? 'isSavingContent'
-            : isCreatingChild
-                ? 'isCreatingChild'
-                : isSelectingNodeId !== null
-                    ? `isSelectingNodeId=${isSelectingNodeId}`
-                    : isTogglingCollapseNodeId !== null
-                        ? `isTogglingCollapseNodeId=${isTogglingCollapseNodeId}`
-                        : isUpdatingLearningStatusNodeId !== null
-                            ? `isUpdatingLearningStatusNodeId=${isUpdatingLearningStatusNodeId}`
-                            : isRenamingNodeId !== null
-                                ? `isRenamingNodeId=${isRenamingNodeId}`
-                                : isDeletingNodeId !== null
-                                    ? `isDeletingNodeId=${isDeletingNodeId}`
-                                    : isCreatingDocumentFromNodeId !== null
-                                        ? `isCreatingDocumentFromNodeId=${isCreatingDocumentFromNodeId}`
-                                        : null;
+
 
     const persistPendingChanges = async () => {
         if (isTitleDirty && selectedNode) {
@@ -1746,15 +1725,12 @@ export function RootTreePanel({
                     </div>
 
                     <div className="root-tree-panel__header-actions">
-                        <div className="root-tree-panel__selection">
-                            Selección activa: nodo #{selectedNodeId}
+                        <div
+                            className="root-tree-panel__selection"
+                            title={`Selección activa: ${selectedNode.title}`}
+                        >
+                            Selección activa: {selectedNode.title}
                         </div>
-
-                        {treeBusyReason ? (
-                            <div className="root-tree-panel__selection">
-                                Bloqueo activo: {treeBusyReason}
-                            </div>
-                        ) : null}
 
                         <button
                             type="button"
