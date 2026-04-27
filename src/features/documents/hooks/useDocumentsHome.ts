@@ -20,7 +20,7 @@ import { setNodeLearningStatus } from '../api/setNodeLearningStatus';
 import { updateNodeContent } from '../api/updateNodeContent';
 import { setDocumentViewport } from '../api/setDocumentViewport';
 import { open as openDialog, save } from '@tauri-apps/plugin-dialog';
-import { exportDocumentToFile } from '../api/exportDocumentToFile';
+import { exportDocumentsToFile } from '../api/exportDocumentToFile';
 import { importDocumentsFromFile } from '../api/importDocumentsFromFile';
 
 type HomeStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -360,48 +360,85 @@ export function useDocumentsHome() {
         }
     }, []);
 
+    const handleExportDocuments = useCallback(
+        async (documentIds: number[]) => {
+            const normalizedDocumentIds = Array.from(
+                new Set(
+                    documentIds.filter((documentId) => {
+                        return Number.isInteger(documentId) && documentId > 0;
+                    }),
+                ),
+            );
+
+            if (normalizedDocumentIds.length === 0) {
+                setExportDocumentErrorMessage(
+                    'Debes seleccionar al menos un documento para exportar.',
+                );
+                return;
+            }
+
+            setIsExportingDocument(true);
+            setExportDocumentErrorMessage(null);
+            setImportDocumentsErrorMessage(null);
+            setErrorMessage(null);
+            setSaveErrorMessage(null);
+
+            try {
+                const selectedDocuments = normalizedDocumentIds
+                    .map((documentId) => {
+                        return documents.find((document) => document.id === documentId) ?? null;
+                    })
+                    .filter((document): document is DocumentListItem => document !== null);
+
+                const defaultPath =
+                    selectedDocuments.length === 1
+                        ? buildSafeExportFileName(selectedDocuments[0].title)
+                        : `study-tree-export-${normalizedDocumentIds.length}-documentos.studytree`;
+
+                const filePath = await save({
+                    title:
+                        normalizedDocumentIds.length === 1
+                            ? 'Exportar documento'
+                            : 'Exportar documentos',
+                    defaultPath,
+                    filters: [
+                        {
+                            name: 'Study Tree',
+                            extensions: ['studytree'],
+                        },
+                    ],
+                });
+
+                if (!filePath) {
+                    return;
+                }
+
+                await exportDocumentsToFile(normalizedDocumentIds, filePath);
+                setStatus('ready');
+            } catch (error) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : typeof error === 'string'
+                            ? error
+                            : 'No se pudieron exportar los documentos.';
+
+                setExportDocumentErrorMessage(message);
+                setStatus('ready');
+            } finally {
+                setIsExportingDocument(false);
+            }
+        },
+        [documents],
+    );
+
     const handleExportOpenedDocument = useCallback(async () => {
         if (!openedSnapshot) {
             return;
         }
 
-        setIsExportingDocument(true);
-        setExportDocumentErrorMessage(null);
-        setImportDocumentsErrorMessage(null);
-        setErrorMessage(null);
-        setSaveErrorMessage(null);
-        try {
-            const filePath = await save({
-                title: 'Exportar documento',
-                defaultPath: buildSafeExportFileName(openedSnapshot.document.title),
-                filters: [
-                    {
-                        name: 'Study Tree',
-                        extensions: ['studytree'],
-                    },
-                ],
-            });
-
-            if (!filePath) {
-                return;
-            }
-
-            await exportDocumentToFile(openedSnapshot.document.id, filePath);
-            setStatus('ready');
-        } catch (error) {
-            const message =
-                error instanceof Error
-                    ? error.message
-                    : typeof error === 'string'
-                        ? error
-                        : 'No se pudo exportar el documento.';
-
-            setExportDocumentErrorMessage(message);
-            setStatus('ready');
-        } finally {
-            setIsExportingDocument(false);
-        }
-    }, [openedSnapshot]);
+        await handleExportDocuments([openedSnapshot.document.id]);
+    }, [handleExportDocuments, openedSnapshot]);
 
     const handleAutosaveSelectedNodeContent = useCallback(
         async (note: string, body: string) => {
@@ -742,6 +779,7 @@ export function useDocumentsHome() {
         isImportingDocuments,
         importDocumentsErrorMessage,
         importDocumentsFromFile: handleImportDocumentsFromFile,
+        exportDocuments: handleExportDocuments,
         exportOpenedDocument: handleExportOpenedDocument,
         loadDocuments,
         createDocument: handleCreateDocument,

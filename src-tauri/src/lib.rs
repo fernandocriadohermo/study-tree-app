@@ -30,6 +30,7 @@ pub fn run() {
             commands::documents::set_node_learning_status,
             commands::documents::export_document_to_file,
             commands::documents::import_documents_from_file,
+            commands::documents::export_documents_to_file,
             commands::documents::rename_node,
             commands::documents::delete_leaf_node,
             commands::documents::delete_document,

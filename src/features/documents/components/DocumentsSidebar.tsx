@@ -15,7 +15,7 @@ interface DocumentsSidebarProps {
     isExportingDocument: boolean;
     exportDocumentErrorMessage: string | null;
     onImportDocuments: () => Promise<void> | void;
-    onExportOpenedDocument: () => Promise<void> | void;
+    onExportDocuments: (documentIds: number[]) => Promise<void> | void;
     onRetry: () => void;
     onCreateDocument: (title: string) => Promise<void> | void;
     onOpenDocument: (documentId: number) => Promise<void> | void;
@@ -81,17 +81,24 @@ export function DocumentsSidebar({
     isExportingDocument,
     exportDocumentErrorMessage,
     onImportDocuments,
-    onExportOpenedDocument,
     onRetry,
+    onExportDocuments,
     onCreateDocument,
     onOpenDocument,
     onDeleteDocument,
     onCopyDocument,
 }: DocumentsSidebarProps) {
     const [draftTitle, setDraftTitle] = useState('');
+    const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
+    const [selectedExportDocumentIds, setSelectedExportDocumentIds] = useState<number[]>([]);
 
     const transferErrorMessage =
         importDocumentsErrorMessage ?? exportDocumentErrorMessage;
+
+    const selectedExportDocumentIdSet = new Set(selectedExportDocumentIds);
+    const hasExportSelection = selectedExportDocumentIds.length > 0;
+    const canOpenExportPanel =
+        documents.length > 0 && !isCreating && !isImportingDocuments && !isExportingDocument;
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -123,6 +130,56 @@ export function DocumentsSidebar({
 
     const handleCopyDocument = async (documentId: number) => {
         await onCopyDocument(documentId);
+    };
+
+    const handleOpenExportPanel = () => {
+        if (!canOpenExportPanel) {
+            return;
+        }
+
+        setSelectedExportDocumentIds(activeDocumentId !== null ? [activeDocumentId] : []);
+        setIsExportPanelOpen(true);
+    };
+
+    const handleToggleExportDocument = (documentId: number) => {
+        setSelectedExportDocumentIds((current) => {
+            if (current.includes(documentId)) {
+                return current.filter((currentDocumentId) => currentDocumentId !== documentId);
+            }
+
+            return [...current, documentId];
+        });
+    };
+
+    const handleSelectActiveExportDocument = () => {
+        if (activeDocumentId === null) {
+            setSelectedExportDocumentIds([]);
+            return;
+        }
+
+        setSelectedExportDocumentIds([activeDocumentId]);
+    };
+
+    const handleSelectAllExportDocuments = () => {
+        setSelectedExportDocumentIds(documents.map((document) => document.id));
+    };
+
+    const handleClearExportDocuments = () => {
+        setSelectedExportDocumentIds([]);
+    };
+
+    const handleCancelExportDocuments = () => {
+        setIsExportPanelOpen(false);
+        setSelectedExportDocumentIds([]);
+    };
+
+    const handleExportSelectedDocuments = async () => {
+        if (selectedExportDocumentIds.length === 0 || isExportingDocument) {
+            return;
+        }
+
+        await onExportDocuments(selectedExportDocumentIds);
+        setIsExportPanelOpen(false);
     };
 
     return (
@@ -174,24 +231,118 @@ export function DocumentsSidebar({
 
                     <button
                         type="button"
-                        className="documents-transfer-actions__button"
-                        onClick={() => void onExportOpenedDocument()}
-                        disabled={
-                            activeDocumentId === null ||
-                            isCreating ||
-                            isImportingDocuments ||
-                            isExportingDocument
-                        }
+                        className={`documents-transfer-actions__button${isExportPanelOpen ? ' is-active' : ''}`}
+                        onClick={handleOpenExportPanel}
+                        disabled={!canOpenExportPanel}
                         title={
-                            activeDocumentId === null
-                                ? 'Abre un documento para exportarlo'
-                                : 'Exportar documento'
+                            documents.length === 0
+                                ? 'No hay documentos para exportar'
+                                : 'Exportar documentos'
                         }
-                        aria-label="Exportar documento"
+                        aria-label="Exportar documentos"
                     >
                         <ExportDocumentIcon />
                     </button>
                 </div>
+
+                {isExportPanelOpen ? (
+                    <div className="documents-export-panel">
+                        <div className="documents-export-panel__header">
+                            <div className="documents-export-panel__title">Exportar documentos</div>
+                            <button
+                                type="button"
+                                className="documents-export-panel__close"
+                                onClick={handleCancelExportDocuments}
+                                aria-label="Cerrar selección de exportación"
+                                title="Cerrar"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="documents-export-panel__quick-actions">
+                            <button
+                                type="button"
+                                className="documents-export-panel__quick-button"
+                                onClick={handleSelectActiveExportDocument}
+                                disabled={activeDocumentId === null || isExportingDocument}
+                            >
+                                Activo
+                            </button>
+
+                            <button
+                                type="button"
+                                className="documents-export-panel__quick-button"
+                                onClick={handleSelectAllExportDocuments}
+                                disabled={documents.length === 0 || isExportingDocument}
+                            >
+                                Todos
+                            </button>
+
+                            <button
+                                type="button"
+                                className="documents-export-panel__quick-button"
+                                onClick={handleClearExportDocuments}
+                                disabled={selectedExportDocumentIds.length === 0 || isExportingDocument}
+                            >
+                                Limpiar
+                            </button>
+                        </div>
+
+                        <div className="documents-export-panel__list">
+                            {documents.map((document) => {
+                                const isChecked = selectedExportDocumentIdSet.has(document.id);
+
+                                return (
+                                    <label
+                                        key={document.id}
+                                        className={`documents-export-panel__item${isChecked ? ' is-selected' : ''}`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            className="documents-export-panel__checkbox"
+                                            checked={isChecked}
+                                            onChange={() => handleToggleExportDocument(document.id)}
+                                            disabled={isExportingDocument}
+                                        />
+
+                                        <span className="documents-export-panel__item-text">
+                                            <span className="documents-export-panel__item-title">
+                                                {document.title}
+                                            </span>
+                                            <span className="documents-export-panel__item-meta">
+                                                #{document.id} · {formatTimestamp(document.updatedAt)}
+                                            </span>
+                                        </span>
+                                    </label>
+                                );
+                            })}
+                        </div>
+
+                        <div className="documents-export-panel__footer">
+                            <button
+                                type="button"
+                                className="documents-export-panel__secondary-button"
+                                onClick={handleCancelExportDocuments}
+                                disabled={isExportingDocument}
+                            >
+                                Cancelar
+                            </button>
+
+                            <button
+                                type="button"
+                                className="documents-export-panel__primary-button"
+                                onClick={() => void handleExportSelectedDocuments()}
+                                disabled={!hasExportSelection || isExportingDocument}
+                            >
+                                {isExportingDocument
+                                    ? 'Exportando…'
+                                    : `Exportar ${selectedExportDocumentIds.length}`}
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+
 
                 {transferErrorMessage ? (
                     <div className="documents-transfer-actions__error">

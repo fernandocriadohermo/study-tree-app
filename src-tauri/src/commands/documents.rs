@@ -42,6 +42,13 @@ pub struct ExportDocumentToFileInput {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExportDocumentsToFileInput {
+    pub document_ids: Vec<i64>,
+    pub file_path: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CopyDocumentInput {
     pub source_document_id: i64,
 }
@@ -141,6 +148,19 @@ pub fn export_document_to_file(
         .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
 
     db.export_document_to_file(input.document_id, input.file_path)
+}
+
+#[tauri::command]
+pub fn export_documents_to_file(
+    input: ExportDocumentsToFileInput,
+    state: State<'_, DatabaseState>,
+) -> Result<(), String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|error| format!("No se pudo bloquear la base de datos: {error}"))?;
+
+    db.export_documents_to_file(input.document_ids, input.file_path)
 }
 
 #[tauri::command]

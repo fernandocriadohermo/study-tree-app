@@ -493,9 +493,17 @@ impl Database {
         })
     }
 
-        pub fn export_document_to_file(
+       pub fn export_document_to_file(
         &self,
         document_id: i64,
+        file_path: String,
+    ) -> Result<(), String> {
+        self.export_documents_to_file(vec![document_id], file_path)
+    }
+
+    pub fn export_documents_to_file(
+        &self,
+        document_ids: Vec<i64>,
         file_path: String,
     ) -> Result<(), String> {
         let normalized_file_path = file_path.trim();
@@ -504,24 +512,49 @@ impl Database {
             return Err("La ruta de exportación no puede estar vacía.".to_string());
         }
 
-        let document_exists = self
-            .connection
-            .query_row(
-                r#"
-                SELECT id
-                FROM documents
-                WHERE id = ?1
-                "#,
-                [document_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            .map_err(|error| {
-                format!("No se pudo comprobar el documento {document_id}: {error}")
-            })?;
+        if document_ids.is_empty() {
+            return Err("Debes seleccionar al menos un documento para exportar.".to_string());
+        }
 
-        if document_exists.is_none() {
-            return Err(format!("No existe el documento {document_id}."));
+        let mut normalized_document_ids = Vec::<i64>::new();
+        let mut seen_document_ids = std::collections::HashSet::<i64>::new();
+
+        for document_id in document_ids {
+            if document_id <= 0 {
+                return Err(format!(
+                    "El identificador de documento {document_id} no es válido."
+                ));
+            }
+
+            if seen_document_ids.insert(document_id) {
+                normalized_document_ids.push(document_id);
+            }
+        }
+
+        if normalized_document_ids.is_empty() {
+            return Err("Debes seleccionar al menos un documento válido para exportar.".to_string());
+        }
+
+        for document_id in &normalized_document_ids {
+            let document_exists = self
+                .connection
+                .query_row(
+                    r#"
+                    SELECT id
+                    FROM documents
+                    WHERE id = ?1
+                    "#,
+                    [document_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|error| {
+                    format!("No se pudo comprobar el documento {document_id}: {error}")
+                })?;
+
+            if document_exists.is_none() {
+                return Err(format!("No existe el documento {document_id}."));
+            }
         }
 
         if std::path::Path::new(normalized_file_path).exists() {
@@ -621,12 +654,18 @@ impl Database {
                 format!("No se pudo escribir export_metadata: {error}")
             })?;
 
-        export_document_into_transaction(
-            &self.connection,
-            &export_transaction,
-            document_id,
-            1,
-        )?;
+        for (index, document_id) in normalized_document_ids.iter().enumerate() {
+            let export_document_id = i64::try_from(index + 1).map_err(|error| {
+                format!("No se pudo generar el identificador export_document_id: {error}")
+            })?;
+
+            export_document_into_transaction(
+                &self.connection,
+                &export_transaction,
+                *document_id,
+                export_document_id,
+            )?;
+        }
 
         export_transaction
             .commit()

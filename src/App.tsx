@@ -38,7 +38,7 @@ export default function App() {
     deleteDocument,
     copyDocument,
     importDocumentsFromFile,
-    exportOpenedDocument,
+    exportDocuments,
     autosaveSelectedNodeContent,
     createChildNode,
     selectNode,
@@ -67,7 +67,7 @@ export default function App() {
           isExportingDocument={isExportingDocument}
           exportDocumentErrorMessage={exportDocumentErrorMessage}
           onImportDocuments={importDocumentsFromFile}
-          onExportOpenedDocument={exportOpenedDocument}
+          onExportDocuments={exportDocuments}
           onRetry={loadDocuments}
           onCreateDocument={createDocument}
           onOpenDocument={openDocument}
