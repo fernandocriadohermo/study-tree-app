@@ -1,4 +1,4 @@
-import { Position, type Edge, type Node } from '@xyflow/react';
+import { MarkerType, Position, type Edge, type Node } from '@xyflow/react';
 import type { NodeDto } from '../../../shared/documents/contracts';
 
 export const VISUAL_NODE_WIDTH = 236;
@@ -32,6 +32,11 @@ const RADIAL_TREE_FIRST_RING_RADIUS_MIN = 0;
 const RADIAL_TREE_RING_GAP = 18;
 const RADIAL_TREE_NODE_ARC_GAP = 6;
 const RADIAL_TREE_RADIUS_SAFETY_PADDING = 4;
+const RADIAL_TREE_ELLIPSE_X_SCALE = 1.34;
+const RADIAL_TREE_ELLIPSE_Y_SCALE = 0.76;
+const RADIAL_TREE_DENSE_RING_TARGET_NODES_PER_LANE = 96;
+const RADIAL_TREE_DENSE_RING_MAX_LANES = 3;
+const RADIAL_TREE_DENSE_RING_LANE_GAP = 132;
 
 
 
@@ -99,6 +104,7 @@ type RadialAngleLayout = {
     treeOrder: number;
     leafSlot: number;
     radius: number;
+    laneOffset: number;
 };
 
 function estimateWrappedLineCount(text: string, charsPerLine: number): number {
@@ -360,6 +366,7 @@ function collectRadialSlotLayouts(
             treeOrder,
             leafSlot,
             radius: 0,
+            laneOffset: 0,
         });
 
         return {
@@ -395,6 +402,7 @@ function collectRadialSlotLayouts(
         treeOrder,
         leafSlot: centerLeafSlot,
         radius: 0,
+        laneOffset: 0,
     });
 
     return {
@@ -453,19 +461,63 @@ function normalizeRadialAngle(angle: number): number {
     return normalizedAngle < 0 ? normalizedAngle + fullCircle : normalizedAngle;
 }
 
+function getRadialLaneCount(layoutsAtDepth: RadialAngleLayout[]): number {
+    return clamp(
+        Math.ceil(
+            layoutsAtDepth.length / RADIAL_TREE_DENSE_RING_TARGET_NODES_PER_LANE,
+        ),
+        1,
+        RADIAL_TREE_DENSE_RING_MAX_LANES,
+    );
+}
+
+function assignRadialLaneOffsets(layoutsAtDepth: RadialAngleLayout[]): void {
+    const laneCount = getRadialLaneCount(layoutsAtDepth);
+    const sortedLayouts = [...layoutsAtDepth].sort((a, b) => {
+        return normalizeRadialAngle(a.angle) - normalizeRadialAngle(b.angle);
+    });
+
+    for (const [index, layout] of sortedLayouts.entries()) {
+        if (laneCount <= 1) {
+            layout.laneOffset = 0;
+            continue;
+        }
+
+        const laneIndex = index % laneCount;
+        layout.laneOffset =
+            (laneIndex - (laneCount - 1) / 2) *
+            RADIAL_TREE_DENSE_RING_LANE_GAP;
+    }
+}
+
+function getRadialLaneRadius(
+    layout: RadialAngleLayout,
+    baseRadius: number,
+): number {
+    return Math.max(0, baseRadius + layout.laneOffset);
+}
+
+function getRadialEllipseCenter(layout: RadialAngleLayout, radius: number): {
+    x: number;
+    y: number;
+} {
+    return {
+        x: Math.cos(layout.angle) * radius * RADIAL_TREE_ELLIPSE_X_SCALE,
+        y: Math.sin(layout.angle) * radius * RADIAL_TREE_ELLIPSE_Y_SCALE,
+    };
+}
+
 function areRadialLayoutsSeparatedAtRadii(
     firstLayout: RadialAngleLayout,
     firstRadius: number,
     secondLayout: RadialAngleLayout,
     secondRadius: number,
 ): boolean {
-    const firstCenterX = Math.cos(firstLayout.angle) * firstRadius;
-    const firstCenterY = Math.sin(firstLayout.angle) * firstRadius;
-    const secondCenterX = Math.cos(secondLayout.angle) * secondRadius;
-    const secondCenterY = Math.sin(secondLayout.angle) * secondRadius;
+    const firstCenter = getRadialEllipseCenter(firstLayout, firstRadius);
+    const secondCenter = getRadialEllipseCenter(secondLayout, secondRadius);
 
-    const horizontalSeparation = Math.abs(secondCenterX - firstCenterX);
-    const verticalSeparation = Math.abs(secondCenterY - firstCenterY);
+    const horizontalSeparation = Math.abs(secondCenter.x - firstCenter.x);
+    const verticalSeparation = Math.abs(secondCenter.y - firstCenter.y);
 
     const requiredHorizontalSeparation =
         (firstLayout.visualNodeSize.width + secondLayout.visualNodeSize.width) /
@@ -486,27 +538,27 @@ function areRadialLayoutsSeparatedAtRadii(
 function areRadialLayoutsSeparatedAtRadius(
     firstLayout: RadialAngleLayout,
     secondLayout: RadialAngleLayout,
-    radius: number,
+    baseRadius: number,
 ): boolean {
     return areRadialLayoutsSeparatedAtRadii(
         firstLayout,
-        radius,
+        getRadialLaneRadius(firstLayout, baseRadius),
         secondLayout,
-        radius,
+        getRadialLaneRadius(secondLayout, baseRadius),
     );
 }
 
 function areRadialLayoutsSeparatedFromPlacedLayoutsAtRadius(
     layoutsAtDepth: RadialAngleLayout[],
     placedLayouts: RadialAngleLayout[],
-    radius: number,
+    baseRadius: number,
 ): boolean {
     for (const layout of layoutsAtDepth) {
         for (const placedLayout of placedLayouts) {
             if (
                 !areRadialLayoutsSeparatedAtRadii(
                     layout,
-                    radius,
+                    getRadialLaneRadius(layout, baseRadius),
                     placedLayout,
                     placedLayout.radius,
                 )
@@ -613,24 +665,26 @@ function getRequiredRadiusForAssignedRadialRing(
         return 0;
     }
 
-    const sortedLayouts = [...layoutsAtDepth].sort((a, b) => {
-        return normalizeRadialAngle(a.angle) - normalizeRadialAngle(b.angle);
-    });
-
     let requiredRadius = 0;
 
-    for (let index = 0; index < sortedLayouts.length; index += 1) {
-        const currentLayout = sortedLayouts[index];
-        const nextLayout =
-            index === sortedLayouts.length - 1
-                ? sortedLayouts[0]
-                : sortedLayouts[index + 1];
+    for (let index = 0; index < layoutsAtDepth.length; index += 1) {
+        const currentLayout = layoutsAtDepth[index];
 
-        requiredRadius = Math.max(
-            requiredRadius,
-            getRequiredRadiusForRadialLayoutPair(currentLayout, nextLayout) +
-            RADIAL_TREE_RADIUS_SAFETY_PADDING,
-        );
+        for (
+            let nextIndex = index + 1;
+            nextIndex < layoutsAtDepth.length;
+            nextIndex += 1
+        ) {
+            const nextLayout = layoutsAtDepth[nextIndex];
+
+            requiredRadius = Math.max(
+                requiredRadius,
+                getRequiredRadiusForRadialLayoutPair(
+                    currentLayout,
+                    nextLayout,
+                ) + RADIAL_TREE_RADIUS_SAFETY_PADDING,
+            );
+        }
     }
 
     return Math.ceil(requiredRadius);
@@ -671,10 +725,17 @@ function buildRadialRadiusByDepth(
             continue;
         }
 
+        assignRadialLaneOffsets(layoutsAtDepth);
+
+        const minimumLaneOffset = Math.min(
+            ...layoutsAtDepth.map((layout) => layout.laneOffset),
+        );
+
         const requiredRadiusByRealCollision =
             getRequiredRadiusForAssignedRadialRing(layoutsAtDepth);
 
-        const minimumRadiusByRingOrder = previousRadius + RADIAL_TREE_RING_GAP;
+        const minimumRadiusByRingOrder =
+            previousRadius + RADIAL_TREE_RING_GAP - minimumLaneOffset;
 
         const requiredRadiusByPlacedLayouts =
             getRequiredRadiusAgainstPlacedRadialLayouts(
@@ -697,11 +758,11 @@ function buildRadialRadiusByDepth(
         radiusByDepth.set(depth, finalRadius);
 
         for (const layout of layoutsAtDepth) {
-            layout.radius = finalRadius;
+            layout.radius = getRadialLaneRadius(layout, finalRadius);
         }
 
         placedLayouts.push(...layoutsAtDepth);
-        previousRadius = finalRadius;
+        previousRadius = Math.max(...layoutsAtDepth.map((layout) => layout.radius));
     }
 
     return radiusByDepth;
@@ -713,14 +774,16 @@ function materializeRadialPositions(
     positions: Map<number, LayoutPosition>,
 ): void {
     for (const [nodeId, radialLayout] of radialLayoutsByNodeId.entries()) {
-        const radius = radiusByDepth.get(radialLayout.depth) ?? 0;
+        const radius =
+            radialLayout.depth === 0
+                ? radiusByDepth.get(radialLayout.depth) ?? 0
+                : radialLayout.radius;
 
-        const centerX = Math.cos(radialLayout.angle) * radius;
-        const centerY = Math.sin(radialLayout.angle) * radius;
+        const center = getRadialEllipseCenter(radialLayout, radius);
 
         positions.set(nodeId, {
-            x: centerX - radialLayout.visualNodeSize.width / 2,
-            y: centerY - radialLayout.visualNodeSize.height / 2,
+            x: center.x - radialLayout.visualNodeSize.width / 2,
+            y: center.y - radialLayout.visualNodeSize.height / 2,
             depth: radialLayout.depth,
             angle: radialLayout.angle,
         });
@@ -1037,6 +1100,17 @@ export function buildVisualTree({
                     stroke: 'rgba(96, 165, 250, 0.58)',
                     strokeWidth: layoutDirection === 'radial' ? 1.65 : 2.5,
                 },
+                markerEnd:
+                    layoutDirection === 'radial'
+                        ? {
+                            type: MarkerType.ArrowClosed,
+                            width: isActiveConnection ? 14 : 10,
+                            height: isActiveConnection ? 14 : 10,
+                            color: isActiveConnection
+                                ? 'rgba(147, 197, 253, 0.92)'
+                                : 'rgba(96, 165, 250, 0.48)',
+                        }
+                        : undefined,
                 zIndex: 0,
             },
         ];
