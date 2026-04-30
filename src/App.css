@@ -1128,8 +1128,8 @@ textarea {
 }
 
 .tree-canvas .react-flow__edge-path {
-  stroke: rgba(96, 165, 250, 0.58) !important;
-  stroke-width: 2.5px !important;
+  stroke: var(--tree-edge-color, rgba(96, 165, 250, 0.58)) !important;
+  stroke-width: var(--tree-edge-width, 2.5px) !important;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition:
@@ -1139,13 +1139,13 @@ textarea {
 }
 
 .tree-canvas .react-flow__edge.is-active-connection .react-flow__edge-path {
-  stroke: rgba(147, 197, 253, 0.9) !important;
-  stroke-width: 3.2px !important;
+  stroke: var(--tree-edge-color, rgba(147, 197, 253, 0.9)) !important;
+  stroke-width: var(--tree-edge-width-active, 3.2px) !important;
 }
 
 .tree-canvas .react-flow__edge.is-passive-connection .react-flow__edge-path {
-  stroke: rgba(96, 165, 250, 0.26) !important;
-  stroke-width: 2px !important;
+  stroke: var(--tree-edge-color, rgba(96, 165, 250, 0.26)) !important;
+  stroke-width: var(--tree-edge-width-passive, 2px) !important;
 }
 
 .tree-canvas-card.is-maximized {

@@ -40,6 +40,18 @@ const RADIAL_TREE_DENSE_RING_LANE_GAP = 132;
 const RADIAL_EDGE_HANDLES_PER_SIDE = 5;
 const RADIAL_EDGE_HANDLE_MIN_RATIO = 0.14;
 const RADIAL_EDGE_HANDLE_MAX_RATIO = 0.86;
+const RADIAL_EDGE_BRANCH_PALETTE = [
+    { r: 96, g: 165, b: 250 },
+    { r: 45, g: 212, b: 191 },
+    { r: 167, g: 139, b: 250 },
+    { r: 251, g: 146, b: 60 },
+    { r: 74, g: 222, b: 128 },
+    { r: 244, g: 114, b: 182 },
+    { r: 56, g: 189, b: 248 },
+    { r: 250, g: 204, b: 21 },
+    { r: 129, g: 140, b: 248 },
+    { r: 248, g: 113, b: 113 },
+];
 
 
 
@@ -1075,6 +1087,61 @@ function getRadialHandleSideForRay(
     return deltaY >= 0 ? Position.Bottom : Position.Top;
 }
 
+function getColorWithDepthLightness(
+    color: {
+        r: number;
+        g: number;
+        b: number;
+    },
+    depth: number,
+): {
+    r: number;
+    g: number;
+    b: number;
+} {
+    const lightnessRatio = Math.min(0.24, Math.max(0, depth - 1) * 0.055);
+
+    return {
+        r: Math.round(color.r + (255 - color.r) * lightnessRatio),
+        g: Math.round(color.g + (255 - color.g) * lightnessRatio),
+        b: Math.round(color.b + (255 - color.b) * lightnessRatio),
+    };
+}
+
+function getRgbaColor(
+    color: {
+        r: number;
+        g: number;
+        b: number;
+    },
+    alpha: number,
+): string {
+    return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+
+function getRadialBranchEdgeColor(
+    branchIndex: number | undefined,
+    depth: number,
+    isActiveConnection: boolean,
+): string {
+    if (branchIndex === undefined) {
+        return isActiveConnection
+            ? 'rgba(147, 197, 253, 0.92)'
+            : 'rgba(96, 165, 250, 0.48)';
+    }
+
+    const baseColor =
+        RADIAL_EDGE_BRANCH_PALETTE[
+        branchIndex % RADIAL_EDGE_BRANCH_PALETTE.length
+        ];
+    const depthColor = getColorWithDepthLightness(baseColor, depth);
+    const alpha = isActiveConnection
+        ? 0.88
+        : Math.max(0.28, 0.48 - Math.max(0, depth - 1) * 0.035);
+
+    return getRgbaColor(depthColor, alpha);
+}
+
 function getSourcePosition(
     layoutDirection: VisualTreeLayoutDirection,
     position: LayoutPosition,
@@ -1144,6 +1211,7 @@ export function buildVisualTree({
         };
     }
 
+    const resolvedRootNodeId = rootNode.id;
     const childrenByParentId = buildChildrenByParentId(nodes);
     const positions = new Map<number, LayoutPosition>();
 
@@ -1170,6 +1238,37 @@ export function buildVisualTree({
     collectVisibleNodes(rootNode, childrenByParentId, visibleNodes);
 
     const selectedNode = nodesById.get(selectedNodeId) ?? null;
+    const rootChildren = childrenByParentId.get(resolvedRootNodeId) ?? [];
+    const rootBranchIndexById = new Map<number, number>();
+    const rootBranchIdByNodeId = new Map<number, number | null>();
+
+    rootChildren.forEach((child, index) => {
+        rootBranchIndexById.set(child.id, index);
+    });
+
+    function getRootBranchId(node: NodeDto): number | null {
+        const cachedRootBranchId = rootBranchIdByNodeId.get(node.id);
+
+        if (cachedRootBranchId !== undefined) {
+            return cachedRootBranchId;
+        }
+
+        if (node.parentId === null) {
+            rootBranchIdByNodeId.set(node.id, null);
+            return null;
+        }
+
+        if (node.parentId === resolvedRootNodeId) {
+            rootBranchIdByNodeId.set(node.id, node.id);
+            return node.id;
+        }
+
+        const parentNode = nodesById.get(node.parentId);
+        const rootBranchId = parentNode ? getRootBranchId(parentNode) : null;
+
+        rootBranchIdByNodeId.set(node.id, rootBranchId);
+        return rootBranchId;
+    }
 
     const flowNodes: StudyTreeFlowNode[] = visibleNodes.map((node) => {
         const position = positions.get(node.id);
@@ -1237,6 +1336,19 @@ export function buildVisualTree({
         const parentNode = nodesById.get(parentId);
         const parentPosition = positions.get(parentId);
         const childPosition = positions.get(node.id);
+        const rootBranchId = getRootBranchId(node);
+        const rootBranchIndex =
+            rootBranchId === null
+                ? undefined
+                : rootBranchIndexById.get(rootBranchId);
+        const edgeColor =
+            layoutDirection === 'radial'
+                ? getRadialBranchEdgeColor(
+                    rootBranchIndex,
+                    childPosition?.depth ?? 1,
+                    isActiveConnection,
+                )
+                : 'rgba(96, 165, 250, 0.58)';
         let radialSourceHandle: string | undefined;
         let radialTargetHandle: string | undefined;
 
@@ -1310,18 +1422,20 @@ export function buildVisualTree({
                 focusable: false,
                 animated: false,
                 style: {
-                    stroke: 'rgba(96, 165, 250, 0.58)',
+                    '--tree-edge-color': edgeColor,
+                    '--tree-edge-width': layoutDirection === 'radial' ? '1.65px' : '2.5px',
+                    '--tree-edge-width-active': layoutDirection === 'radial' ? '1.95px' : '3.2px',
+                    '--tree-edge-width-passive': layoutDirection === 'radial' ? '1.65px' : '2px',
+                    stroke: edgeColor,
                     strokeWidth: layoutDirection === 'radial' ? 1.65 : 2.5,
-                },
+                } as Edge['style'],
                 markerEnd:
                     layoutDirection === 'radial'
                         ? {
                             type: MarkerType.ArrowClosed,
                             width: isActiveConnection ? 14 : 10,
                             height: isActiveConnection ? 14 : 10,
-                            color: isActiveConnection
-                                ? 'rgba(147, 197, 253, 0.92)'
-                                : 'rgba(96, 165, 250, 0.48)',
+                            color: edgeColor,
                         }
                         : undefined,
                 zIndex: 0,
