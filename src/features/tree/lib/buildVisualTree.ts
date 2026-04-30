@@ -37,6 +37,9 @@ const RADIAL_TREE_ELLIPSE_Y_SCALE = 0.76;
 const RADIAL_TREE_DENSE_RING_TARGET_NODES_PER_LANE = 96;
 const RADIAL_TREE_DENSE_RING_MAX_LANES = 3;
 const RADIAL_TREE_DENSE_RING_LANE_GAP = 132;
+const RADIAL_EDGE_HANDLES_PER_SIDE = 5;
+const RADIAL_EDGE_HANDLE_MIN_RATIO = 0.14;
+const RADIAL_EDGE_HANDLE_MAX_RATIO = 0.86;
 
 
 
@@ -899,6 +902,10 @@ function getCardinalPositionForAngle(angle: number): Position {
     const x = Math.cos(angle);
     const y = Math.sin(angle);
 
+    return getCardinalPositionForVector(x, y);
+}
+
+function getCardinalPositionForVector(x: number, y: number): Position {
     if (Math.abs(x) >= Math.abs(y)) {
         return x >= 0 ? Position.Right : Position.Left;
     }
@@ -920,6 +927,152 @@ function getOppositePosition(position: Position): Position {
     }
 
     return Position.Top;
+}
+
+function getHandleRatio(handleIndex: number): number {
+    if (RADIAL_EDGE_HANDLES_PER_SIDE <= 1) {
+        return 0.5;
+    }
+
+    const step =
+        (RADIAL_EDGE_HANDLE_MAX_RATIO - RADIAL_EDGE_HANDLE_MIN_RATIO) /
+        (RADIAL_EDGE_HANDLES_PER_SIDE - 1);
+
+    return RADIAL_EDGE_HANDLE_MIN_RATIO + handleIndex * step;
+}
+
+function getNearestHandleIndex(ratio: number): number {
+    const clampedRatio = Math.max(
+        RADIAL_EDGE_HANDLE_MIN_RATIO,
+        Math.min(RADIAL_EDGE_HANDLE_MAX_RATIO, ratio),
+    );
+    let nearestIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < RADIAL_EDGE_HANDLES_PER_SIDE; index += 1) {
+        const distance = Math.abs(clampedRatio - getHandleRatio(index));
+
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = index;
+        }
+    }
+
+    return nearestIndex;
+}
+
+function getHandleId(
+    handleType: 'source' | 'target',
+    position: Position,
+    handleIndex: number,
+): string {
+    return `${handleType}-${position}-${handleIndex}`;
+}
+
+function getVisualNodeSizeForPosition(
+    node: NodeDto,
+    position: LayoutPosition,
+    layoutDirection: VisualTreeLayoutDirection,
+): VisualNodeSize {
+    if (layoutDirection === 'radial') {
+        return getRadialVisualNodeSize(node, position.depth);
+    }
+
+    return {
+        width: VISUAL_NODE_WIDTH,
+        height: VISUAL_NODE_HEIGHT,
+    };
+}
+
+function getLayoutCenter(
+    node: NodeDto,
+    position: LayoutPosition,
+    layoutDirection: VisualTreeLayoutDirection,
+): {
+    x: number;
+    y: number;
+} {
+    const visualNodeSize = getVisualNodeSizeForPosition(
+        node,
+        position,
+        layoutDirection,
+    );
+
+    return {
+        x: position.x + visualNodeSize.width / 2,
+        y: position.y + visualNodeSize.height / 2,
+    };
+}
+
+function getRadialHandleIndexForSide(
+    node: NodeDto,
+    position: LayoutPosition,
+    layoutDirection: VisualTreeLayoutDirection,
+    side: Position,
+    otherCenter: {
+        x: number;
+        y: number;
+    },
+): number {
+    const nodeSize = getVisualNodeSizeForPosition(
+        node,
+        position,
+        layoutDirection,
+    );
+    const center = getLayoutCenter(node, position, layoutDirection);
+    const deltaX = otherCenter.x - center.x;
+    const deltaY = otherCenter.y - center.y;
+    const halfWidth = nodeSize.width / 2;
+    const halfHeight = nodeSize.height / 2;
+
+    if (side === Position.Left || side === Position.Right) {
+        const travel = Math.abs(deltaX) > 0.001
+            ? halfWidth / Math.abs(deltaX)
+            : 0;
+        const intersectionY = center.y + deltaY * travel;
+        const ratio = (intersectionY - (center.y - halfHeight)) / nodeSize.height;
+
+        return getNearestHandleIndex(ratio);
+    }
+
+    const travel = Math.abs(deltaY) > 0.001
+        ? halfHeight / Math.abs(deltaY)
+        : 0;
+    const intersectionX = center.x + deltaX * travel;
+    const ratio = (intersectionX - (center.x - halfWidth)) / nodeSize.width;
+
+    return getNearestHandleIndex(ratio);
+}
+
+function getRadialHandleSideForRay(
+    node: NodeDto,
+    position: LayoutPosition,
+    layoutDirection: VisualTreeLayoutDirection,
+    otherCenter: {
+        x: number;
+        y: number;
+    },
+): Position {
+    const nodeSize = getVisualNodeSizeForPosition(
+        node,
+        position,
+        layoutDirection,
+    );
+    const center = getLayoutCenter(node, position, layoutDirection);
+    const deltaX = otherCenter.x - center.x;
+    const deltaY = otherCenter.y - center.y;
+    const xTravel = Math.abs(deltaX) > 0.001
+        ? nodeSize.width / 2 / Math.abs(deltaX)
+        : Number.POSITIVE_INFINITY;
+    const yTravel = Math.abs(deltaY) > 0.001
+        ? nodeSize.height / 2 / Math.abs(deltaY)
+        : Number.POSITIVE_INFINITY;
+
+    if (xTravel < yTravel) {
+        return deltaX >= 0 ? Position.Right : Position.Left;
+    }
+
+    return deltaY >= 0 ? Position.Bottom : Position.Top;
 }
 
 function getSourcePosition(
@@ -1081,14 +1234,74 @@ export function buildVisualTree({
         const parentId = node.parentId;
         const isActiveConnection =
             node.id === selectedNodeId || parentId === selectedNodeId;
+        const parentNode = nodesById.get(parentId);
+        const parentPosition = positions.get(parentId);
+        const childPosition = positions.get(node.id);
+        let radialSourceHandle: string | undefined;
+        let radialTargetHandle: string | undefined;
+
+        if (
+            layoutDirection === 'radial' &&
+            parentNode &&
+            parentPosition &&
+            childPosition
+        ) {
+            const parentCenter = getLayoutCenter(
+                parentNode,
+                parentPosition,
+                layoutDirection,
+            );
+            const childCenter = getLayoutCenter(
+                node,
+                childPosition,
+                layoutDirection,
+            );
+            const sourcePosition = getRadialHandleSideForRay(
+                parentNode,
+                parentPosition,
+                layoutDirection,
+                childCenter,
+            );
+            const targetPosition = getRadialHandleSideForRay(
+                node,
+                childPosition,
+                layoutDirection,
+                parentCenter,
+            );
+            const sourceHandleIndex = getRadialHandleIndexForSide(
+                parentNode,
+                parentPosition,
+                layoutDirection,
+                sourcePosition,
+                childCenter,
+            );
+            const targetHandleIndex = getRadialHandleIndexForSide(
+                node,
+                childPosition,
+                layoutDirection,
+                targetPosition,
+                parentCenter,
+            );
+
+            radialSourceHandle = getHandleId(
+                'source',
+                sourcePosition,
+                sourceHandleIndex,
+            );
+            radialTargetHandle = getHandleId(
+                'target',
+                targetPosition,
+                targetHandleIndex,
+            );
+        }
 
         return [
             {
                 id: `edge-${parentId}-${node.id}`,
                 source: String(parentId),
                 target: String(node.id),
-                sourceHandle: 'source',
-                targetHandle: 'target',
+                sourceHandle: radialSourceHandle ?? 'source',
+                targetHandle: radialTargetHandle ?? 'target',
                 type: getVisualEdgeType(layoutDirection),
                 className: isActiveConnection
                     ? 'is-active-connection'

@@ -63,6 +63,21 @@ interface RootTreePanelProps {
 const AUTOSAVE_DELAY_MS = 800;
 const VIEWPORT_SAVE_DELAY_MS = 250;
 const SELECTION_VISIBILITY_MARGIN_PX = 28;
+const RADIAL_HANDLE_POSITIONS = [
+    Position.Top,
+    Position.Right,
+    Position.Bottom,
+    Position.Left,
+];
+const RADIAL_HANDLE_OFFSETS = [14, 32, 50, 68, 86];
+
+function getRadialHandleStyle(position: Position, offset: number) {
+    if (position === Position.Top || position === Position.Bottom) {
+        return { left: `${offset}%` };
+    }
+
+    return { top: `${offset}%` };
+}
 
 function isSameViewport(a: Viewport, b: Viewport): boolean {
     return (
@@ -373,13 +388,13 @@ function StudyTreeCanvasNode({
     const isRootNode = data.kindLabel === 'Raíz';
 
     const targetHandlePosition = isRadialLayout
-        ? Position.Top
+        ? data.targetHandlePosition ?? Position.Left
         : isVerticalLayout
             ? Position.Top
             : Position.Left;
 
     const sourceHandlePosition = isRadialLayout
-        ? Position.Top
+        ? data.sourceHandlePosition ?? Position.Right
         : isVerticalLayout
             ? Position.Bottom
             : Position.Right;
@@ -391,31 +406,61 @@ function StudyTreeCanvasNode({
         <div
             className={`visual-tree-node-shell nodrag nopan${isRadialLayout ? ' visual-tree-node-shell--radial' : ''}${isCompactLayout ? ' visual-tree-node-shell--compact' : ''}${isRootNode ? ' visual-tree-node-shell--root' : ''}${data.isActive ? ' is-selected' : ''}${data.isContextual ? ' is-contextual' : ''}`}
         >
-            <Handle
-                id="target"
-                type="target"
-                position={targetHandlePosition}
-                isConnectable={false}
-                className={`visual-tree-node-handle ${isRadialLayout
-                    ? 'visual-tree-node-handle--radial-center'
-                    : isVerticalLayout
-                        ? 'visual-tree-node-handle--target-vertical'
-                        : 'visual-tree-node-handle--target'
-                    }`}
-            />
+            {isRadialLayout ? (
+                <>
+                    {RADIAL_HANDLE_POSITIONS.flatMap((position) =>
+                        RADIAL_HANDLE_OFFSETS.map((offset, index) => (
+                            <Handle
+                                key={`target-${position}-${index}`}
+                                id={`target-${position}-${index}`}
+                                type="target"
+                                position={position}
+                                isConnectable={false}
+                                style={getRadialHandleStyle(position, offset)}
+                                className="visual-tree-node-handle visual-tree-node-handle--radial"
+                            />
+                        )),
+                    )}
 
-            <Handle
-                id="source"
-                type="source"
-                position={sourceHandlePosition}
-                isConnectable={false}
-                className={`visual-tree-node-handle ${isRadialLayout
-                    ? 'visual-tree-node-handle--radial-center'
-                    : isVerticalLayout
-                        ? 'visual-tree-node-handle--source-vertical'
-                        : 'visual-tree-node-handle--source'
-                    }`}
-            />
+                    {RADIAL_HANDLE_POSITIONS.flatMap((position) =>
+                        RADIAL_HANDLE_OFFSETS.map((offset, index) => (
+                            <Handle
+                                key={`source-${position}-${index}`}
+                                id={`source-${position}-${index}`}
+                                type="source"
+                                position={position}
+                                isConnectable={false}
+                                style={getRadialHandleStyle(position, offset)}
+                                className="visual-tree-node-handle visual-tree-node-handle--radial"
+                            />
+                        )),
+                    )}
+                </>
+            ) : (
+                <>
+                    <Handle
+                        id="target"
+                        type="target"
+                        position={targetHandlePosition}
+                        isConnectable={false}
+                        className={`visual-tree-node-handle ${isVerticalLayout
+                            ? 'visual-tree-node-handle--target-vertical'
+                            : 'visual-tree-node-handle--target'
+                            }`}
+                    />
+
+                    <Handle
+                        id="source"
+                        type="source"
+                        position={sourceHandlePosition}
+                        isConnectable={false}
+                        className={`visual-tree-node-handle ${isVerticalLayout
+                            ? 'visual-tree-node-handle--source-vertical'
+                            : 'visual-tree-node-handle--source'
+                            }`}
+                    />
+                </>
+            )}
 
             {showExternalNodeControls && data.hasChildren ? (
                 <button
