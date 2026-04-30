@@ -17,6 +17,16 @@ function buildNode(overrides: Partial<NodeDto>): NodeDto {
     };
 }
 
+function buildCallbacks() {
+    return {
+        onSelectNode: vi.fn(),
+        onOpenDetailsWorkspace: vi.fn(),
+        onToggleCollapse: vi.fn(),
+        onQuickCreateChild: vi.fn(),
+        onQuickDeleteLeaf: vi.fn(),
+    };
+}
+
 describe('buildVisualTree', () => {
     it('genera conectores entre padre e hijo visibles en el modelo del canvas', () => {
         const onSelectNode = vi.fn();
@@ -252,5 +262,103 @@ describe('buildVisualTree', () => {
         expect(rootNode?.data.canDelete).toBe(false);
         expect(parentNode?.data.canDelete).toBe(false);
         expect(leafNode?.data.canDelete).toBe(true);
+    });
+
+    it('mantiene compacto el primer anillo radial cuando solo necesita separarse del root', () => {
+        const callbacks = buildCallbacks();
+        const nodes: NodeDto[] = [
+            buildNode({
+                id: 101,
+                parentId: null,
+                title: 'Root',
+            }),
+            buildNode({
+                id: 102,
+                parentId: 101,
+                title: 'Hijo unico',
+                siblingOrder: 0,
+            }),
+        ];
+
+        const result = buildVisualTree({
+            nodes,
+            rootNodeId: 101,
+            selectedNodeId: 101,
+            isBusy: false,
+            layoutDirection: 'radial',
+            ...callbacks,
+        });
+
+        const root = result.flowNodes.find((node) => node.id === '101');
+        const child = result.flowNodes.find((node) => node.id === '102');
+
+        expect(root).toBeDefined();
+        expect(child).toBeDefined();
+
+        const rootCenterX = root!.position.x + 160;
+        const rootCenterY = root!.position.y + 76;
+        const childCenterX = child!.position.x + 78;
+        const childCenterY = child!.position.y + 23;
+        const childRadius = Math.hypot(
+            childCenterX - rootCenterX,
+            childCenterY - rootCenterY,
+        );
+
+        expect(childRadius).toBeLessThan(280);
+    });
+
+    it('dimensiona el anillo radial por separacion real entre tarjetas vecinas', () => {
+        const callbacks = buildCallbacks();
+        const childNodes = Array.from({ length: 24 }, (_, index) =>
+            buildNode({
+                id: 200 + index,
+                parentId: 101,
+                title: `Hijo ${index + 1}`,
+                siblingOrder: index,
+            }),
+        );
+
+        const result = buildVisualTree({
+            nodes: [
+                buildNode({
+                    id: 101,
+                    parentId: null,
+                    title: 'Root',
+                }),
+                ...childNodes,
+            ],
+            rootNodeId: 101,
+            selectedNodeId: 101,
+            isBusy: false,
+            layoutDirection: 'radial',
+            ...callbacks,
+        });
+
+        const childBoxes = result.flowNodes
+            .filter((node) => node.id !== '101')
+            .map((node) => ({
+                id: node.id,
+                left: node.position.x,
+                right: node.position.x + 156,
+                top: node.position.y,
+                bottom: node.position.y + 46,
+            }));
+
+        for (let index = 0; index < childBoxes.length; index += 1) {
+            const currentBox = childBoxes[index];
+
+            for (let nextIndex = index + 1; nextIndex < childBoxes.length; nextIndex += 1) {
+                const nextBox = childBoxes[nextIndex];
+                const overlapsHorizontally =
+                    currentBox.left < nextBox.right && currentBox.right > nextBox.left;
+                const overlapsVertically =
+                    currentBox.top < nextBox.bottom && currentBox.bottom > nextBox.top;
+
+                expect(
+                    overlapsHorizontally && overlapsVertically,
+                    `${currentBox.id} should not overlap ${nextBox.id}`,
+                ).toBe(false);
+            }
+        }
     });
 });

@@ -4,19 +4,19 @@ import type { NodeDto } from '../../../shared/documents/contracts';
 export const VISUAL_NODE_WIDTH = 236;
 export const VISUAL_NODE_HEIGHT = 132;
 
-const RADIAL_VISUAL_NODE_WIDTH = 210;
-const RADIAL_VISUAL_NODE_HEIGHT = 112;
+const RADIAL_VISUAL_NODE_WIDTH = 156;
+const RADIAL_VISUAL_NODE_HEIGHT = 46;
 
 const RADIAL_ROOT_VISUAL_NODE_WIDTH = 320;
 const RADIAL_ROOT_VISUAL_NODE_HEIGHT = 152;
 
-const RADIAL_NODE_TITLE_CHARS_PER_LINE = 24;
+const RADIAL_NODE_TITLE_CHARS_PER_LINE = 20;
 const RADIAL_ROOT_TITLE_CHARS_PER_LINE = 23;
 
-const RADIAL_NODE_FIXED_VERTICAL_SPACE = 58;
+const RADIAL_NODE_FIXED_VERTICAL_SPACE = 18;
 const RADIAL_ROOT_FIXED_VERTICAL_SPACE = 84;
 
-const RADIAL_NODE_TITLE_LINE_HEIGHT = 16;
+const RADIAL_NODE_TITLE_LINE_HEIGHT = 13;
 const RADIAL_ROOT_TITLE_LINE_HEIGHT = 22;
 
 const HORIZONTAL_GAP = 176;
@@ -28,11 +28,10 @@ const VERTICAL_TREE_HORIZONTAL_GAP_MIN = 18;
 const VERTICAL_TREE_VERTICAL_GAP_MIN = 96;
 const VERTICAL_TREE_VERTICAL_GAP_MAX = 176;
 
-const RADIAL_TREE_FIRST_RING_RADIUS_MIN = 360;
-const RADIAL_TREE_RING_GAP = 118;
-const RADIAL_TREE_NODE_ARC_GAP = 28;
-const RADIAL_TREE_NODE_CAPACITY_WIDTH_FACTOR = 1;
-const RADIAL_TREE_RADIUS_SAFETY_PADDING = 12;
+const RADIAL_TREE_FIRST_RING_RADIUS_MIN = 0;
+const RADIAL_TREE_RING_GAP = 18;
+const RADIAL_TREE_NODE_ARC_GAP = 6;
+const RADIAL_TREE_RADIUS_SAFETY_PADDING = 4;
 
 
 
@@ -99,6 +98,7 @@ type RadialAngleLayout = {
     visualNodeSize: VisualNodeSize;
     treeOrder: number;
     leafSlot: number;
+    radius: number;
 };
 
 function estimateWrappedLineCount(text: string, charsPerLine: number): number {
@@ -359,6 +359,7 @@ function collectRadialSlotLayouts(
             visualNodeSize: getRadialVisualNodeSize(node, depth),
             treeOrder,
             leafSlot,
+            radius: 0,
         });
 
         return {
@@ -393,6 +394,7 @@ function collectRadialSlotLayouts(
         visualNodeSize: getRadialVisualNodeSize(node, depth),
         treeOrder,
         leafSlot: centerLeafSlot,
+        radius: 0,
     });
 
     return {
@@ -444,40 +446,6 @@ function groupRadialLayoutsByDepth(
     return layoutsByDepth;
 }
 
-function getRadialNodeRadialExtent(layout: RadialAngleLayout): number {
-    return Math.max(layout.visualNodeSize.width, layout.visualNodeSize.height);
-}
-
-function getMaximumRadialNodeExtent(layouts: RadialAngleLayout[]): number {
-    return layouts.reduce((maximumExtent, layout) => {
-        return Math.max(maximumExtent, getRadialNodeRadialExtent(layout));
-    }, 0);
-}
-
-function getRadialNodeArcDemand(layout: RadialAngleLayout): number {
-    return (
-        Math.max(
-            layout.visualNodeSize.width * RADIAL_TREE_NODE_CAPACITY_WIDTH_FACTOR,
-            layout.visualNodeSize.height,
-        ) + RADIAL_TREE_NODE_ARC_GAP
-    );
-}
-
-function getRadialRingCapacityRadius(layouts: RadialAngleLayout[]): number {
-    if (layouts.length <= 1) {
-        return 0;
-    }
-
-    const requiredCircumference = layouts.reduce((total, layout) => {
-        return total + getRadialNodeArcDemand(layout);
-    }, 0);
-
-    return Math.ceil(
-        requiredCircumference / (Math.PI * 2) +
-        RADIAL_TREE_RADIUS_SAFETY_PADDING,
-    );
-}
-
 function normalizeRadialAngle(angle: number): number {
     const fullCircle = Math.PI * 2;
     const normalizedAngle = angle % fullCircle;
@@ -485,36 +453,157 @@ function normalizeRadialAngle(angle: number): number {
     return normalizedAngle < 0 ? normalizedAngle + fullCircle : normalizedAngle;
 }
 
-function getRequiredRadiusForChord(
-    chordLength: number,
-    angularGap: number,
-): number {
-    const safeAngularGap = clamp(angularGap, 0.001, Math.PI * 2 - 0.001);
+function areRadialLayoutsSeparatedAtRadii(
+    firstLayout: RadialAngleLayout,
+    firstRadius: number,
+    secondLayout: RadialAngleLayout,
+    secondRadius: number,
+): boolean {
+    const firstCenterX = Math.cos(firstLayout.angle) * firstRadius;
+    const firstCenterY = Math.sin(firstLayout.angle) * firstRadius;
+    const secondCenterX = Math.cos(secondLayout.angle) * secondRadius;
+    const secondCenterY = Math.sin(secondLayout.angle) * secondRadius;
 
-    return chordLength / (2 * Math.sin(safeAngularGap / 2));
-}
+    const horizontalSeparation = Math.abs(secondCenterX - firstCenterX);
+    const verticalSeparation = Math.abs(secondCenterY - firstCenterY);
 
-function getRadialTangentialExtent(layout: RadialAngleLayout): number {
-    const tangentX = -Math.sin(layout.angle);
-    const tangentY = Math.cos(layout.angle);
+    const requiredHorizontalSeparation =
+        (firstLayout.visualNodeSize.width + secondLayout.visualNodeSize.width) /
+        2 +
+        RADIAL_TREE_NODE_ARC_GAP;
+
+    const requiredVerticalSeparation =
+        (firstLayout.visualNodeSize.height + secondLayout.visualNodeSize.height) /
+        2 +
+        RADIAL_TREE_NODE_ARC_GAP;
 
     return (
-        Math.abs(tangentX) * layout.visualNodeSize.width +
-        Math.abs(tangentY) * layout.visualNodeSize.height
+        horizontalSeparation >= requiredHorizontalSeparation ||
+        verticalSeparation >= requiredVerticalSeparation
     );
 }
 
-function getRadialCollisionChordLengthForPair(
+function areRadialLayoutsSeparatedAtRadius(
+    firstLayout: RadialAngleLayout,
+    secondLayout: RadialAngleLayout,
+    radius: number,
+): boolean {
+    return areRadialLayoutsSeparatedAtRadii(
+        firstLayout,
+        radius,
+        secondLayout,
+        radius,
+    );
+}
+
+function areRadialLayoutsSeparatedFromPlacedLayoutsAtRadius(
+    layoutsAtDepth: RadialAngleLayout[],
+    placedLayouts: RadialAngleLayout[],
+    radius: number,
+): boolean {
+    for (const layout of layoutsAtDepth) {
+        for (const placedLayout of placedLayouts) {
+            if (
+                !areRadialLayoutsSeparatedAtRadii(
+                    layout,
+                    radius,
+                    placedLayout,
+                    placedLayout.radius,
+                )
+            ) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+function getRequiredRadiusAgainstPlacedRadialLayouts(
+    layoutsAtDepth: RadialAngleLayout[],
+    placedLayouts: RadialAngleLayout[],
+    minimumRadius: number,
+): number {
+    if (layoutsAtDepth.length === 0 || placedLayouts.length === 0) {
+        return minimumRadius;
+    }
+
+    let lowerRadius = minimumRadius;
+    let upperRadius = Math.max(minimumRadius, 1);
+    let expansionCount = 0;
+
+    while (
+        !areRadialLayoutsSeparatedFromPlacedLayoutsAtRadius(
+            layoutsAtDepth,
+            placedLayouts,
+            upperRadius,
+        ) &&
+        expansionCount < 20
+    ) {
+        lowerRadius = upperRadius;
+        upperRadius *= 2;
+        expansionCount += 1;
+    }
+
+    for (let iteration = 0; iteration < 16; iteration += 1) {
+        const middleRadius = (lowerRadius + upperRadius) / 2;
+
+        if (
+            areRadialLayoutsSeparatedFromPlacedLayoutsAtRadius(
+                layoutsAtDepth,
+                placedLayouts,
+                middleRadius,
+            )
+        ) {
+            upperRadius = middleRadius;
+        } else {
+            lowerRadius = middleRadius;
+        }
+    }
+
+    return upperRadius + RADIAL_TREE_RADIUS_SAFETY_PADDING;
+}
+
+function getRequiredRadiusForRadialLayoutPair(
     firstLayout: RadialAngleLayout,
     secondLayout: RadialAngleLayout,
 ): number {
-    const firstTangentialExtent = getRadialTangentialExtent(firstLayout);
-    const secondTangentialExtent = getRadialTangentialExtent(secondLayout);
-
-    return (
-        (firstTangentialExtent + secondTangentialExtent) / 2 +
-        RADIAL_TREE_NODE_ARC_GAP
+    let lowerRadius = 0;
+    let upperRadius = Math.max(
+        firstLayout.visualNodeSize.width,
+        firstLayout.visualNodeSize.height,
+        secondLayout.visualNodeSize.width,
+        secondLayout.visualNodeSize.height,
     );
+
+    let expansionCount = 0;
+
+    while (
+        !areRadialLayoutsSeparatedAtRadius(firstLayout, secondLayout, upperRadius) &&
+        expansionCount < 20
+    ) {
+        lowerRadius = upperRadius;
+        upperRadius *= 2;
+        expansionCount += 1;
+    }
+
+    for (let iteration = 0; iteration < 16; iteration += 1) {
+        const middleRadius = (lowerRadius + upperRadius) / 2;
+
+        if (
+            areRadialLayoutsSeparatedAtRadius(
+                firstLayout,
+                secondLayout,
+                middleRadius,
+            )
+        ) {
+            upperRadius = middleRadius;
+        } else {
+            lowerRadius = middleRadius;
+        }
+    }
+
+    return upperRadius;
 }
 
 function getRequiredRadiusForAssignedRadialRing(
@@ -537,27 +626,9 @@ function getRequiredRadiusForAssignedRadialRing(
                 ? sortedLayouts[0]
                 : sortedLayouts[index + 1];
 
-        const currentAngle = normalizeRadialAngle(currentLayout.angle);
-        const rawNextAngle = normalizeRadialAngle(nextLayout.angle);
-        const nextAngle =
-            index === sortedLayouts.length - 1
-                ? rawNextAngle + Math.PI * 2
-                : rawNextAngle;
-
-        const angularGap = nextAngle - currentAngle;
-
-        if (angularGap <= 0) {
-            continue;
-        }
-
-        const chordLength = getRadialCollisionChordLengthForPair(
-            currentLayout,
-            nextLayout,
-        );
-
         requiredRadius = Math.max(
             requiredRadius,
-            getRequiredRadiusForChord(chordLength, angularGap) +
+            getRequiredRadiusForRadialLayoutPair(currentLayout, nextLayout) +
             RADIAL_TREE_RADIUS_SAFETY_PADDING,
         );
     }
@@ -585,16 +656,13 @@ function buildRadialRadiusByDepth(
     }
 
     const rootLayouts = layoutsByDepth.get(0) ?? [];
-    const rootVisualNodeSize = rootLayouts[0]?.visualNodeSize ?? {
-        width: RADIAL_ROOT_VISUAL_NODE_WIDTH,
-        height: RADIAL_ROOT_VISUAL_NODE_HEIGHT,
-    };
+    const placedLayouts = [...rootLayouts];
+
+    for (const rootLayout of rootLayouts) {
+        rootLayout.radius = 0;
+    }
 
     let previousRadius = 0;
-    let previousMaximumRadialExtent = Math.max(
-        rootVisualNodeSize.width,
-        rootVisualNodeSize.height,
-    );
 
     for (let depth = 1; depth <= maxDepth; depth += 1) {
         const layoutsAtDepth = layoutsByDepth.get(depth) ?? [];
@@ -603,36 +671,37 @@ function buildRadialRadiusByDepth(
             continue;
         }
 
-        const maximumRadialExtent = getMaximumRadialNodeExtent(layoutsAtDepth);
-
-        const requiredRadiusByCapacity =
-            getRadialRingCapacityRadius(layoutsAtDepth);
-
         const requiredRadiusByRealCollision =
             getRequiredRadiusForAssignedRadialRing(layoutsAtDepth);
 
-        const requiredRadiusByPreviousRing =
-            previousRadius +
-            previousMaximumRadialExtent / 2 +
-            maximumRadialExtent / 2 +
-            RADIAL_TREE_RING_GAP;
+        const minimumRadiusByRingOrder = previousRadius + RADIAL_TREE_RING_GAP;
+
+        const requiredRadiusByPlacedLayouts =
+            getRequiredRadiusAgainstPlacedRadialLayouts(
+                layoutsAtDepth,
+                placedLayouts,
+                minimumRadiusByRingOrder,
+            );
 
         const requiredRadiusByFirstRing =
             depth === 1 ? RADIAL_TREE_FIRST_RING_RADIUS_MIN : 0;
 
         const finalRadius = Math.ceil(
             Math.max(
-                requiredRadiusByCapacity,
                 requiredRadiusByRealCollision,
-                requiredRadiusByPreviousRing,
+                requiredRadiusByPlacedLayouts,
                 requiredRadiusByFirstRing,
             ),
         );
 
         radiusByDepth.set(depth, finalRadius);
 
+        for (const layout of layoutsAtDepth) {
+            layout.radius = finalRadius;
+        }
+
+        placedLayouts.push(...layoutsAtDepth);
         previousRadius = finalRadius;
-        previousMaximumRadialExtent = maximumRadialExtent;
     }
 
     return radiusByDepth;
@@ -911,6 +980,7 @@ export function buildVisualTree({
             },
             sourcePosition: sourceHandlePosition,
             targetPosition: targetHandlePosition,
+            zIndex: isActive ? 1000 : isContextual ? 500 : position.depth,
             draggable: false,
             selectable: false,
             data: {

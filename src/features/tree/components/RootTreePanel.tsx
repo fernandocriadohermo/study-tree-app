@@ -389,7 +389,7 @@ function StudyTreeCanvasNode({
 
     return (
         <div
-            className={`visual-tree-node-shell nodrag nopan${isRadialLayout ? ' visual-tree-node-shell--radial' : ''}${isCompactLayout ? ' visual-tree-node-shell--compact' : ''}${isRootNode ? ' visual-tree-node-shell--root' : ''}`}
+            className={`visual-tree-node-shell nodrag nopan${isRadialLayout ? ' visual-tree-node-shell--radial' : ''}${isCompactLayout ? ' visual-tree-node-shell--compact' : ''}${isRootNode ? ' visual-tree-node-shell--root' : ''}${data.isActive ? ' is-selected' : ''}${data.isContextual ? ' is-contextual' : ''}`}
         >
             <Handle
                 id="target"
@@ -532,6 +532,7 @@ function StudyTreeCanvasNode({
                 data-testid={`tree-node-${data.nodeId}-button`}
                 aria-label={data.title}
                 aria-disabled={data.isBusy ? 'true' : 'false'}
+                title={isRadialLayout && !isRootNode ? data.title : undefined}
             >
                 <div
                     className={`root-tree-node nodrag nopan root-tree-node--${data.learningStatus}${isRadialLayout ? ' root-tree-node--radial' : ''}${isRootNode ? ' root-tree-node--root' : ''}${data.isActive ? ' is-selected' : ''}`}
