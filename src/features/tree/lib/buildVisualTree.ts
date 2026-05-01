@@ -37,9 +37,9 @@ const RADIAL_TREE_ELLIPSE_Y_SCALE = 0.76;
 const RADIAL_TREE_DENSE_RING_TARGET_NODES_PER_LANE = 96;
 const RADIAL_TREE_DENSE_RING_MAX_LANES = 3;
 const RADIAL_TREE_DENSE_RING_LANE_GAP = 132;
-const RADIAL_EDGE_HANDLES_PER_SIDE = 5;
-const RADIAL_EDGE_HANDLE_MIN_RATIO = 0.14;
-const RADIAL_EDGE_HANDLE_MAX_RATIO = 0.86;
+const RADIAL_EDGE_HANDLES_PER_SIDE = 9;
+const RADIAL_EDGE_HANDLE_MIN_RATIO = 0.10;
+const RADIAL_EDGE_HANDLE_MAX_RATIO = 0.90;
 const RADIAL_EDGE_BRANCH_PALETTE = [
     { r: 96, g: 165, b: 250 },
     { r: 45, g: 212, b: 191 },
@@ -958,32 +958,279 @@ function getHandleRatio(handleIndex: number): number {
     return RADIAL_EDGE_HANDLE_MIN_RATIO + handleIndex * step;
 }
 
-function getNearestHandleIndex(ratio: number): number {
-    const clampedRatio = Math.max(
-        RADIAL_EDGE_HANDLE_MIN_RATIO,
-        Math.min(RADIAL_EDGE_HANDLE_MAX_RATIO, ratio),
-    );
-    let nearestIndex = 0;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-
-    for (let index = 0; index < RADIAL_EDGE_HANDLES_PER_SIDE; index += 1) {
-        const distance = Math.abs(clampedRatio - getHandleRatio(index));
-
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestIndex = index;
-        }
-    }
-
-    return nearestIndex;
-}
-
 function getHandleId(
     handleType: 'source' | 'target',
     position: Position,
     handleIndex: number,
 ): string {
     return `${handleType}-${position}-${handleIndex}`;
+}
+
+function getRadialHandlePoint(
+    node: NodeDto,
+    position: LayoutPosition,
+    layoutDirection: VisualTreeLayoutDirection,
+    side: Position,
+    handleIndex: number,
+): {
+    x: number;
+    y: number;
+} {
+    const nodeSize = getVisualNodeSizeForPosition(
+        node,
+        position,
+        layoutDirection,
+    );
+    const center = getLayoutCenter(node, position, layoutDirection);
+    const ratio = getHandleRatio(handleIndex);
+    const left = center.x - nodeSize.width / 2;
+    const top = center.y - nodeSize.height / 2;
+
+    if (side === Position.Left) {
+        return {
+            x: left,
+            y: top + nodeSize.height * ratio,
+        };
+    }
+
+    if (side === Position.Right) {
+        return {
+            x: left + nodeSize.width,
+            y: top + nodeSize.height * ratio,
+        };
+    }
+
+    if (side === Position.Top) {
+        return {
+            x: left + nodeSize.width * ratio,
+            y: top,
+        };
+    }
+
+    return {
+        x: left + nodeSize.width * ratio,
+        y: top + nodeSize.height,
+    };
+}
+
+function getRadialHandleOutwardVector(side: Position): {
+    x: number;
+    y: number;
+} {
+    if (side === Position.Left) {
+        return { x: -1, y: 0 };
+    }
+
+    if (side === Position.Right) {
+        return { x: 1, y: 0 };
+    }
+
+    if (side === Position.Top) {
+        return { x: 0, y: -1 };
+    }
+
+    return { x: 0, y: 1 };
+}
+
+function getNormalizedVector(
+    fromPoint: {
+        x: number;
+        y: number;
+    },
+    toPoint: {
+        x: number;
+        y: number;
+    },
+): {
+    x: number;
+    y: number;
+} {
+    const deltaX = toPoint.x - fromPoint.x;
+    const deltaY = toPoint.y - fromPoint.y;
+    const distance = Math.hypot(deltaX, deltaY);
+
+    if (distance < 0.001) {
+        return { x: 0, y: 0 };
+    }
+
+    return {
+        x: deltaX / distance,
+        y: deltaY / distance,
+    };
+}
+
+function getRadialHandleDirectionPenalty(
+    handleSide: Position,
+    direction: {
+        x: number;
+        y: number;
+    },
+    mode: 'source' | 'target',
+): number {
+    const outwardVector = getRadialHandleOutwardVector(handleSide);
+    const directionScore =
+        outwardVector.x * direction.x + outwardVector.y * direction.y;
+    const desiredScore = mode === 'source' ? directionScore : -directionScore;
+
+    return Math.max(0, 1 - desiredScore) * 360;
+}
+
+function getRadialHandleAxisAlignmentPenalty(
+    sourceSide: Position,
+    sourcePoint: {
+        x: number;
+        y: number;
+    },
+    targetSide: Position,
+    targetPoint: {
+        x: number;
+        y: number;
+    },
+): number {
+    const sourceIsHorizontalSide =
+        sourceSide === Position.Left || sourceSide === Position.Right;
+    const targetIsHorizontalSide =
+        targetSide === Position.Left || targetSide === Position.Right;
+
+    if (sourceIsHorizontalSide && targetIsHorizontalSide) {
+        return Math.abs(sourcePoint.y - targetPoint.y) * 0.38;
+    }
+
+    if (!sourceIsHorizontalSide && !targetIsHorizontalSide) {
+        return Math.abs(sourcePoint.x - targetPoint.x) * 0.38;
+    }
+
+    return 0;
+}
+
+function getRadialHandlePair(
+    sourceNode: NodeDto,
+    sourcePosition: LayoutPosition,
+    targetNode: NodeDto,
+    targetPosition: LayoutPosition,
+    layoutDirection: VisualTreeLayoutDirection,
+): {
+    sourceSide: Position;
+    sourceHandleIndex: number;
+    targetSide: Position;
+    targetHandleIndex: number;
+} {
+    const handleSides = [
+        Position.Top,
+        Position.Right,
+        Position.Bottom,
+        Position.Left,
+    ];
+    const sourceCenter = getLayoutCenter(
+        sourceNode,
+        sourcePosition,
+        layoutDirection,
+    );
+    const targetCenter = getLayoutCenter(
+        targetNode,
+        targetPosition,
+        layoutDirection,
+    );
+    const centerDirection = getNormalizedVector(sourceCenter, targetCenter);
+    let bestPair = {
+        sourceSide: getRadialHandleSideForRay(
+            sourceNode,
+            sourcePosition,
+            layoutDirection,
+            targetCenter,
+        ),
+        sourceHandleIndex: 0,
+        targetSide: getRadialHandleSideForRay(
+            targetNode,
+            targetPosition,
+            layoutDirection,
+            sourceCenter,
+        ),
+        targetHandleIndex: 0,
+    };
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const sourceSide of handleSides) {
+        for (
+            let sourceHandleIndex = 0;
+            sourceHandleIndex < RADIAL_EDGE_HANDLES_PER_SIDE;
+            sourceHandleIndex += 1
+        ) {
+            const sourcePoint = getRadialHandlePoint(
+                sourceNode,
+                sourcePosition,
+                layoutDirection,
+                sourceSide,
+                sourceHandleIndex,
+            );
+
+            for (const targetSide of handleSides) {
+                for (
+                    let targetHandleIndex = 0;
+                    targetHandleIndex < RADIAL_EDGE_HANDLES_PER_SIDE;
+                    targetHandleIndex += 1
+                ) {
+                    const targetPoint = getRadialHandlePoint(
+                        targetNode,
+                        targetPosition,
+                        layoutDirection,
+                        targetSide,
+                        targetHandleIndex,
+                    );
+                    const edgeDirection = getNormalizedVector(
+                        sourcePoint,
+                        targetPoint,
+                    );
+                    const distance = Math.hypot(
+                        targetPoint.x - sourcePoint.x,
+                        targetPoint.y - sourcePoint.y,
+                    );
+                    const directionPenalty =
+                        getRadialHandleDirectionPenalty(
+                            sourceSide,
+                            edgeDirection,
+                            'source',
+                        ) +
+                        getRadialHandleDirectionPenalty(
+                            targetSide,
+                            edgeDirection,
+                            'target',
+                        );
+                    const centerDirectionPenalty =
+                        Math.max(
+                            0,
+                            1 -
+                            (edgeDirection.x * centerDirection.x +
+                                edgeDirection.y * centerDirection.y),
+                        ) * 120;
+                    const axisAlignmentPenalty =
+                        getRadialHandleAxisAlignmentPenalty(
+                            sourceSide,
+                            sourcePoint,
+                            targetSide,
+                            targetPoint,
+                        );
+                    const score =
+                        distance +
+                        directionPenalty +
+                        centerDirectionPenalty +
+                        axisAlignmentPenalty;
+
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestPair = {
+                            sourceSide,
+                            sourceHandleIndex,
+                            targetSide,
+                            targetHandleIndex,
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    return bestPair;
 }
 
 function getVisualNodeSizeForPosition(
@@ -1019,46 +1266,6 @@ function getLayoutCenter(
         x: position.x + visualNodeSize.width / 2,
         y: position.y + visualNodeSize.height / 2,
     };
-}
-
-function getRadialHandleIndexForSide(
-    node: NodeDto,
-    position: LayoutPosition,
-    layoutDirection: VisualTreeLayoutDirection,
-    side: Position,
-    otherCenter: {
-        x: number;
-        y: number;
-    },
-): number {
-    const nodeSize = getVisualNodeSizeForPosition(
-        node,
-        position,
-        layoutDirection,
-    );
-    const center = getLayoutCenter(node, position, layoutDirection);
-    const deltaX = otherCenter.x - center.x;
-    const deltaY = otherCenter.y - center.y;
-    const halfWidth = nodeSize.width / 2;
-    const halfHeight = nodeSize.height / 2;
-
-    if (side === Position.Left || side === Position.Right) {
-        const travel = Math.abs(deltaX) > 0.001
-            ? halfWidth / Math.abs(deltaX)
-            : 0;
-        const intersectionY = center.y + deltaY * travel;
-        const ratio = (intersectionY - (center.y - halfHeight)) / nodeSize.height;
-
-        return getNearestHandleIndex(ratio);
-    }
-
-    const travel = Math.abs(deltaY) > 0.001
-        ? halfHeight / Math.abs(deltaY)
-        : 0;
-    const intersectionX = center.x + deltaX * travel;
-    const ratio = (intersectionX - (center.x - halfWidth)) / nodeSize.width;
-
-    return getNearestHandleIndex(ratio);
 }
 
 function getRadialHandleSideForRay(
@@ -1421,52 +1628,23 @@ export function buildVisualTree({
             parentPosition &&
             childPosition
         ) {
-            const parentCenter = getLayoutCenter(
+            const handlePair = getRadialHandlePair(
                 parentNode,
                 parentPosition,
-                layoutDirection,
-            );
-            const childCenter = getLayoutCenter(
                 node,
                 childPosition,
                 layoutDirection,
-            );
-            const sourcePosition = getRadialHandleSideForRay(
-                parentNode,
-                parentPosition,
-                layoutDirection,
-                childCenter,
-            );
-            const targetPosition = getRadialHandleSideForRay(
-                node,
-                childPosition,
-                layoutDirection,
-                parentCenter,
-            );
-            const sourceHandleIndex = getRadialHandleIndexForSide(
-                parentNode,
-                parentPosition,
-                layoutDirection,
-                sourcePosition,
-                childCenter,
-            );
-            const targetHandleIndex = getRadialHandleIndexForSide(
-                node,
-                childPosition,
-                layoutDirection,
-                targetPosition,
-                parentCenter,
             );
 
             radialSourceHandle = getHandleId(
                 'source',
-                sourcePosition,
-                sourceHandleIndex,
+                handlePair.sourceSide,
+                handlePair.sourceHandleIndex,
             );
             radialTargetHandle = getHandleId(
                 'target',
-                targetPosition,
-                targetHandleIndex,
+                handlePair.targetSide,
+                handlePair.targetHandleIndex,
             );
         }
 

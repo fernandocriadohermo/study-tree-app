@@ -69,7 +69,7 @@ const RADIAL_HANDLE_POSITIONS = [
     Position.Bottom,
     Position.Left,
 ];
-const RADIAL_HANDLE_OFFSETS = [14, 32, 50, 68, 86];
+const RADIAL_HANDLE_OFFSETS = [10, 20, 30, 40, 50, 60, 70, 80, 90];
 
 function getRadialHandleStyle(position: Position, offset: number) {
     if (position === Position.Top || position === Position.Bottom) {
