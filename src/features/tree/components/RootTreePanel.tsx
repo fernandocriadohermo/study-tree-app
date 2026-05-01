@@ -1141,8 +1141,6 @@ export function RootTreePanel({
         return (childrenByParentId.get(selectedNode.id) ?? []).length > 0;
     }, [childrenByParentId, selectedNode]);
 
-    const isSelectedNodeLearningStatusEditable = !selectedNodeHasChildren;
-
     useEffect(() => {
         setDraftTitle(selectedNode?.title ?? '');
     }, [selectedNode?.id, selectedNode?.updatedAt, selectedNode?.title]);
@@ -1685,6 +1683,26 @@ export function RootTreePanel({
     const selectedNodeChildren = selectedNode
         ? childrenByParentId.get(selectedNode.id) ?? []
         : [];
+    const selectedNodeHasOwnBodyContent = stripHtml(draftBody).trim().length > 0;
+    const areSelectedNodeChildrenDominated =
+        selectedNodeChildren.length > 0 &&
+        selectedNodeChildren.every((childNode) => childNode.learningStatus === 'dominado');
+    const canManuallyEditParentLearningStatus =
+        selectedNodeHasChildren &&
+        selectedNodeHasOwnBodyContent &&
+        areSelectedNodeChildrenDominated;
+    const isSelectedNodeLearningStatusEditable =
+        !selectedNodeHasChildren || canManuallyEditParentLearningStatus;
+    const selectedNodeLearningStatusOptions = canManuallyEditParentLearningStatus
+        ? LEARNING_STATUS_OPTIONS.filter((option) =>
+            option.value === 'en_estudio' || option.value === 'dominado'
+        )
+        : LEARNING_STATUS_OPTIONS;
+    const learningStatusHint = isSelectedNodeLearningStatusEditable
+        ? canManuallyEditParentLearningStatus
+            ? 'Este nodo tiene contenido propio e hijos dominados: puedes marcarlo en estudio o dominado.'
+            : 'Este cambio actualiza el color del nodo y se refleja en el canvas.'
+        : 'Estado calculado automaticamente a partir de sus hijos.';
 
     const isSelectedNodeRoot = selectedNode?.parentId === null;
     const isSelectedNodeLeaf = selectedNodeChildren.length === 0;
@@ -2716,17 +2734,13 @@ export function RootTreePanel({
                                 }}
                                 disabled={treeBusy || !isSelectedNodeLearningStatusEditable}
                             >
-                                {LEARNING_STATUS_OPTIONS.map((option) => (
+                                {selectedNodeLearningStatusOptions.map((option) => (
                                     <option key={option.value} value={option.value}>
                                         {option.label}
                                     </option>
                                 ))}
                             </select>
-                            <div className="learning-status-hint">
-                                {isSelectedNodeLearningStatusEditable
-                                    ? 'Este cambio actualiza el color del nodo y se refleja en el canvas.'
-                                    : 'Estado calculado automáticamente a partir de sus hijos.'}
-                            </div>
+                            <div className="learning-status-hint">{learningStatusHint}</div>
                         </section>
                         {!isDetailsMaximized ? (
                             <section className="content-card tree-action-card">

@@ -805,6 +805,8 @@ impl Database {
             .map_err(|error| format!("No se pudo comprobar el nodo {node_id}: {error}"))?
             .ok_or_else(|| "El nodo indicado no existe".to_string())?;
 
+        let had_own_body_content = node_has_own_body_content(&transaction, node_id)?;
+
         let affected_rows = transaction
             .execute(
                 r#"
@@ -823,6 +825,35 @@ impl Database {
             return Err("No existe contenido persistido para el nodo indicado".to_string());
         }
 
+        let has_new_own_body_content = node_has_own_body_content(&transaction, node_id)?;
+
+        if !had_own_body_content
+            && has_new_own_body_content
+            && node_has_children(&transaction, document_id, node_id)?
+        {
+            let (total_children, _, _, _, dominado_count) =
+                children_learning_status_counts(&transaction, document_id, node_id)?;
+
+            if total_children > 0 && dominado_count == total_children {
+                transaction
+                    .execute(
+                        r#"
+                        UPDATE nodes
+                        SET
+                          learning_status = 'en_estudio',
+                          updated_at = ?1
+                        WHERE id = ?2
+                          AND document_id = ?3
+                        "#,
+                        params![now, node_id, document_id],
+                    )
+                    .map_err(|error| {
+                        format!("No se pudo ajustar el estado del nodo con contenido propio: {error}")
+                    })?;
+            }
+        }
+
+        recalculate_learning_status_upwards(&transaction, document_id, Some(node_id), now)?;
         update_document_updated_at(&transaction, document_id, now)?;
 
         transaction
@@ -1085,8 +1116,18 @@ impl Database {
             .map_err(|error| format!("No se pudo comprobar el nodo {node_id}: {error}"))?
             .ok_or_else(|| "El nodo indicado no pertenece al documento activo".to_string())?;
 
-        if node_has_children(&transaction, document_id, node_id)? {
-            return Err("Solo se puede cambiar manualmente el estado de nodos hoja".to_string());
+        if node_has_children(&transaction, document_id, node_id)?
+            && !can_manually_edit_parent_learning_status(
+                &transaction,
+                document_id,
+                node_id,
+                &normalized_learning_status,
+            )?
+        {
+            return Err(
+                "Solo se puede cambiar manualmente el estado de nodos hoja, salvo padres con contenido propio e hijos dominados"
+                    .to_string(),
+            );
         }
 
         let affected_rows = transaction
@@ -1603,6 +1644,136 @@ fn normalize_node_title(title: String) -> Result<String, String> {
     Ok(normalized.to_string())
 }
 
+fn strip_html_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut inside_tag = false;
+    let mut inside_entity = false;
+    let mut entity = String::new();
+
+    for character in value.chars() {
+        if inside_entity {
+            if character == ';' {
+                match entity.as_str() {
+                    "nbsp" => output.push(' '),
+                    "amp" => output.push('&'),
+                    "lt" => output.push('<'),
+                    "gt" => output.push('>'),
+                    "quot" => output.push('"'),
+                    "#39" => output.push('\''),
+                    _ => {}
+                }
+
+                entity.clear();
+                inside_entity = false;
+            } else if entity.len() < 12 {
+                entity.push(character);
+            } else {
+                entity.clear();
+                inside_entity = false;
+            }
+
+            continue;
+        }
+
+        if character == '&' {
+            inside_entity = true;
+            entity.clear();
+            continue;
+        }
+
+        if character == '<' {
+            inside_tag = true;
+            output.push(' ');
+            continue;
+        }
+
+        if character == '>' {
+            inside_tag = false;
+            output.push(' ');
+            continue;
+        }
+
+        if !inside_tag {
+            output.push(character);
+        }
+    }
+
+    output
+}
+
+fn node_has_own_body_content(
+    transaction: &Transaction<'_>,
+    node_id: i64,
+) -> Result<bool, String> {
+    let body = transaction
+        .query_row(
+            r#"
+            SELECT COALESCE(body, '')
+            FROM node_content
+            WHERE node_id = ?1
+            "#,
+            [node_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("No se pudo leer el contenido del nodo {node_id}: {error}"))?
+        .unwrap_or_default();
+
+    Ok(!strip_html_text(&body).trim().is_empty())
+}
+
+fn children_learning_status_counts(
+    transaction: &Transaction<'_>,
+    document_id: i64,
+    node_id: i64,
+) -> Result<(i64, i64, i64, i64, i64), String> {
+    transaction
+        .query_row(
+            r#"
+            SELECT
+              COUNT(*) AS total_children,
+              COALESCE(SUM(CASE WHEN learning_status = 'sin_ver' THEN 1 ELSE 0 END), 0) AS sin_ver_count,
+              COALESCE(SUM(CASE WHEN learning_status = 'visto' THEN 1 ELSE 0 END), 0) AS visto_count,
+              COALESCE(SUM(CASE WHEN learning_status = 'en_estudio' THEN 1 ELSE 0 END), 0) AS en_estudio_count,
+              COALESCE(SUM(CASE WHEN learning_status = 'dominado' THEN 1 ELSE 0 END), 0) AS dominado_count
+            FROM nodes
+            WHERE document_id = ?1
+              AND parent_id = ?2
+            "#,
+            params![document_id, node_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            },
+        )
+        .map_err(|error| {
+            format!("No se pudo calcular el estado derivado del nodo {node_id}: {error}")
+        })
+}
+
+fn can_manually_edit_parent_learning_status(
+    transaction: &Transaction<'_>,
+    document_id: i64,
+    node_id: i64,
+    next_learning_status: &str,
+) -> Result<bool, String> {
+    if next_learning_status != "en_estudio" && next_learning_status != "dominado" {
+        return Ok(false);
+    }
+
+    let (total_children, _, _, _, dominado_count) =
+        children_learning_status_counts(transaction, document_id, node_id)?;
+
+    Ok(total_children > 0
+        && dominado_count == total_children
+        && node_has_own_body_content(transaction, node_id)?)
+}
+
 fn node_has_children(
     transaction: &Transaction<'_>,
     document_id: i64,
@@ -1654,47 +1825,41 @@ fn calculate_derived_learning_status(
     document_id: i64,
     node_id: i64,
 ) -> Result<Option<String>, String> {
-    let (
-        total_children,
-        sin_ver_count,
-        visto_count,
-        en_estudio_count,
-        dominado_count,
-    ) = transaction
-        .query_row(
-            r#"
-            SELECT
-              COUNT(*) AS total_children,
-              COALESCE(SUM(CASE WHEN learning_status = 'sin_ver' THEN 1 ELSE 0 END), 0) AS sin_ver_count,
-              COALESCE(SUM(CASE WHEN learning_status = 'visto' THEN 1 ELSE 0 END), 0) AS visto_count,
-              COALESCE(SUM(CASE WHEN learning_status = 'en_estudio' THEN 1 ELSE 0 END), 0) AS en_estudio_count,
-              COALESCE(SUM(CASE WHEN learning_status = 'dominado' THEN 1 ELSE 0 END), 0) AS dominado_count
-            FROM nodes
-            WHERE document_id = ?1
-              AND parent_id = ?2
-            "#,
-            params![document_id, node_id],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
-            },
-        )
-        .map_err(|error| {
-            format!("No se pudo calcular el estado derivado del nodo {node_id}: {error}")
-        })?;
+    let (total_children, sin_ver_count, visto_count, en_estudio_count, dominado_count) =
+        children_learning_status_counts(transaction, document_id, node_id)?;
 
     if total_children == 0 {
         return Ok(None);
     }
 
+    let has_own_body_content = node_has_own_body_content(transaction, node_id)?;
+
     let derived_status = if dominado_count == total_children {
-        "dominado"
-    } else if en_estudio_count > 0 {
+        if has_own_body_content {
+            let current_status = transaction
+                .query_row(
+                    r#"
+                    SELECT learning_status
+                    FROM nodes
+                    WHERE id = ?1
+                      AND document_id = ?2
+                    "#,
+                    params![node_id, document_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(|error| {
+                    format!("No se pudo leer el estado actual del nodo {node_id}: {error}")
+                })?;
+
+            if current_status == "dominado" {
+                "dominado"
+            } else {
+                "en_estudio"
+            }
+        } else {
+            "dominado"
+        }
+    } else if dominado_count > 0 || en_estudio_count > 0 {
         "en_estudio"
     } else if sin_ver_count == 0 && (visto_count + dominado_count == total_children) {
         "visto"
@@ -3844,6 +4009,215 @@ mod tests {
     }
 
     #[test]
+    fn parent_with_content_and_mastered_children_can_be_marked_manually() {
+        let db_path = unique_test_db_path("learning-status-parent-content");
+        let mut database = Database::open_for_test(&db_path).expect("database should open");
+
+        let created = database
+            .create_document("Tema principal".to_string())
+            .expect("document should be created");
+
+        let with_child = database
+            .create_child_node(created.root_node_id, "Epigrafe 1".to_string())
+            .expect("child should be created");
+
+        let child = with_child
+            .nodes
+            .iter()
+            .find(|node| node.parent_id == Some(created.root_node_id))
+            .expect("child should exist")
+            .clone();
+
+        let with_grandchild = database
+            .create_child_node(child.id, "Subepigrafe 1.1".to_string())
+            .expect("grandchild should be created");
+
+        let grandchild = with_grandchild
+            .nodes
+            .iter()
+            .find(|node| node.parent_id == Some(child.id))
+            .expect("grandchild should exist")
+            .clone();
+
+        let mastered_grandchild = database
+            .set_node_learning_status(
+                created.document.id,
+                grandchild.id,
+                "dominado".to_string(),
+            )
+            .expect("grandchild mastered should succeed")
+            .expect("document should exist");
+
+        let child_without_content = mastered_grandchild
+            .nodes
+            .iter()
+            .find(|node| node.id == child.id)
+            .expect("child should exist without content");
+
+        assert_eq!(child_without_content.learning_status, "dominado");
+
+        database
+            .update_node_content(
+                child.id,
+                None,
+                "<p>Contenido propio del epigrafe</p>".to_string(),
+            )
+            .expect("updating child content should succeed");
+
+        let with_parent_content = database
+            .open_document(created.document.id)
+            .expect("open document should succeed")
+            .expect("document should exist");
+
+        let child_with_content = with_parent_content
+            .nodes
+            .iter()
+            .find(|node| node.id == child.id)
+            .expect("child should exist with content");
+
+        assert_eq!(child_with_content.learning_status, "en_estudio");
+
+        let manually_mastered_parent = database
+            .set_node_learning_status(created.document.id, child.id, "dominado".to_string())
+            .expect("manual parent mastered should succeed")
+            .expect("document should exist");
+
+        let mastered_child = manually_mastered_parent
+            .nodes
+            .iter()
+            .find(|node| node.id == child.id)
+            .expect("mastered child should exist");
+
+        assert_eq!(mastered_child.learning_status, "dominado");
+
+        let error = database
+            .set_node_learning_status(created.document.id, child.id, "visto".to_string())
+            .expect_err("manual parent status outside allowed range should fail");
+
+        assert!(error.contains("padres con contenido propio"));
+
+        cleanup_sqlite_files(&db_path);
+    }
+
+    #[test]
+    fn parent_with_content_moves_to_in_study_when_one_child_is_mastered() {
+        let db_path = unique_test_db_path("learning-status-parent-content-partial");
+        let mut database = Database::open_for_test(&db_path).expect("database should open");
+
+        let created = database
+            .create_document("Tema principal".to_string())
+            .expect("document should be created");
+
+        let with_parent = database
+            .create_child_node(created.root_node_id, "Epigrafe 1".to_string())
+            .expect("parent should be created");
+
+        let parent = with_parent
+            .nodes
+            .iter()
+            .find(|node| node.parent_id == Some(created.root_node_id))
+            .expect("parent should exist")
+            .clone();
+
+        let with_first_child = database
+            .create_child_node(parent.id, "Subepigrafe 1.1".to_string())
+            .expect("first child should be created");
+
+        let first_child = with_first_child
+            .nodes
+            .iter()
+            .find(|node| node.parent_id == Some(parent.id))
+            .expect("first child should exist")
+            .clone();
+
+        let _with_second_child = database
+            .create_child_node(parent.id, "Subepigrafe 1.2".to_string())
+            .expect("second child should be created");
+
+        database
+            .update_node_content(
+                parent.id,
+                None,
+                "<p>Contenido propio del epigrafe</p>".to_string(),
+            )
+            .expect("updating parent content should succeed");
+
+        let after_mastered_child = database
+            .set_node_learning_status(
+                created.document.id,
+                first_child.id,
+                "dominado".to_string(),
+            )
+            .expect("mastering child should succeed")
+            .expect("document should exist");
+
+        let updated_parent = after_mastered_child
+            .nodes
+            .iter()
+            .find(|node| node.id == parent.id)
+            .expect("parent should exist after mastering child");
+
+        assert_eq!(updated_parent.learning_status, "en_estudio");
+
+        cleanup_sqlite_files(&db_path);
+    }
+
+    #[test]
+    fn parent_without_content_moves_to_in_study_when_one_child_is_mastered() {
+        let db_path = unique_test_db_path("learning-status-parent-no-content-partial");
+        let mut database = Database::open_for_test(&db_path).expect("database should open");
+
+        let created = database
+            .create_document("Tema principal".to_string())
+            .expect("document should be created");
+
+        let with_parent = database
+            .create_child_node(created.root_node_id, "Epigrafe 1".to_string())
+            .expect("parent should be created");
+
+        let parent = with_parent
+            .nodes
+            .iter()
+            .find(|node| node.parent_id == Some(created.root_node_id))
+            .expect("parent should exist")
+            .clone();
+
+        let with_first_child = database
+            .create_child_node(parent.id, "Subepigrafe 1.1".to_string())
+            .expect("first child should be created");
+
+        let first_child = with_first_child
+            .nodes
+            .iter()
+            .find(|node| node.parent_id == Some(parent.id))
+            .expect("first child should exist")
+            .clone();
+
+        let _with_second_child = database
+            .create_child_node(parent.id, "Subepigrafe 1.2".to_string())
+            .expect("second child should be created");
+
+        let after_mastered_child = database
+            .set_node_learning_status(
+                created.document.id,
+                first_child.id,
+                "dominado".to_string(),
+            )
+            .expect("mastering child should succeed")
+            .expect("document should exist");
+
+        let updated_parent = after_mastered_child
+            .nodes
+            .iter()
+            .find(|node| node.id == parent.id)
+            .expect("parent should exist after mastering child");
+
+        assert_eq!(updated_parent.learning_status, "en_estudio");
+
+        cleanup_sqlite_files(&db_path);
+    }
+
+    #[test]
     fn set_node_learning_status_recalculates_ancestors_from_leaf_changes() {
         let db_path = unique_test_db_path("learning-status-cascade");
         let mut database = Database::open_for_test(&db_path).expect("database should open");
@@ -3978,8 +4352,8 @@ mod tests {
             .find(|node| node.id == created.root_node_id)
             .expect("root should exist after first mastered");
 
-        assert_eq!(child_after_first_mastered.learning_status, "visto");
-        assert_eq!(root_after_first_mastered.learning_status, "visto");
+        assert_eq!(child_after_first_mastered.learning_status, "en_estudio");
+        assert_eq!(root_after_first_mastered.learning_status, "en_estudio");
 
         let after_second_mastered = database
             .set_node_learning_status(
