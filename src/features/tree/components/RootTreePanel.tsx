@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
     Background,
     Controls,
@@ -1615,6 +1615,128 @@ export function RootTreePanel({
     const treeVerticalRef = useRef<HTMLDivElement | null>(null);
     const treeRadialRef = useRef<HTMLDivElement | null>(null);
 
+    const resetRadialEdgeHoverStyles = useCallback(() => {
+        const canvasElement = treeRadialRef.current;
+
+        if (!canvasElement) {
+            return;
+        }
+
+        canvasElement
+            .querySelectorAll<SVGGElement>('.react-flow__edge')
+            .forEach((edgeElement) => {
+                edgeElement.style.opacity = '';
+                edgeElement.style.removeProperty('--tree-edge-width');
+                edgeElement.style.removeProperty('--tree-edge-width-active');
+                edgeElement.style.removeProperty('--tree-edge-width-passive');
+
+                edgeElement
+                    .querySelectorAll<SVGPathElement>('.react-flow__edge-path')
+                    .forEach((pathElement) => {
+                        pathElement.style.opacity = '';
+                        pathElement.style.strokeWidth = '';
+                        pathElement.style.removeProperty('--tree-edge-width');
+                        pathElement.style.removeProperty('--tree-edge-width-active');
+                        pathElement.style.removeProperty('--tree-edge-width-passive');
+                    });
+            });
+    }, []);
+
+    const applyRadialEdgeHoverStyle = useCallback((
+        edgeId: string,
+        opacity: number,
+        width: number,
+    ) => {
+        const canvasElement = treeRadialRef.current;
+
+        if (!canvasElement) {
+            return;
+        }
+
+        const edgeElement = canvasElement.querySelector<SVGGElement>(
+            `.react-flow__edge[data-id="${edgeId}"]`,
+        );
+
+        if (!edgeElement) {
+            return;
+        }
+
+        edgeElement.style.opacity = String(opacity);
+        edgeElement.style.setProperty('--tree-edge-width', `${width}px`);
+        edgeElement.style.setProperty('--tree-edge-width-active', `${Math.max(width, 1.95)}px`);
+        edgeElement.style.setProperty('--tree-edge-width-passive', `${width}px`);
+
+        edgeElement
+            .querySelectorAll<SVGPathElement>('.react-flow__edge-path')
+            .forEach((pathElement) => {
+                pathElement.style.opacity = String(opacity);
+                pathElement.style.strokeWidth = `${width}px`;
+                pathElement.style.setProperty('--tree-edge-width', `${width}px`);
+                pathElement.style.setProperty('--tree-edge-width-active', `${Math.max(width, 1.95)}px`);
+                pathElement.style.setProperty('--tree-edge-width-passive', `${width}px`);
+            });
+    }, []);
+
+    const handleRadialNodeMouseEnter = useCallback((
+        _event: ReactMouseEvent,
+        node: StudyTreeFlowNode,
+    ) => {
+        const hoveredNodeId = Number(node.id);
+        let currentNode = nodesById.get(hoveredNodeId) ?? null;
+
+        treeRadialRef.current
+            ?.querySelectorAll<SVGGElement>('.react-flow__edge')
+            .forEach((edgeElement) => {
+                edgeElement.style.opacity = '0.32';
+                edgeElement.style.setProperty('--tree-edge-width', '1.65px');
+                edgeElement.style.setProperty('--tree-edge-width-active', '1.95px');
+                edgeElement.style.setProperty('--tree-edge-width-passive', '1.65px');
+
+                edgeElement
+                    .querySelectorAll<SVGPathElement>('.react-flow__edge-path')
+                    .forEach((pathElement) => {
+                        pathElement.style.opacity = '0.32';
+                        pathElement.style.strokeWidth = '1.65px';
+                        pathElement.style.setProperty('--tree-edge-width', '1.65px');
+                        pathElement.style.setProperty('--tree-edge-width-active', '1.95px');
+                        pathElement.style.setProperty('--tree-edge-width-passive', '1.65px');
+                    });
+            });
+
+        while (currentNode) {
+            if (currentNode.parentId === null) {
+                break;
+            }
+
+            applyRadialEdgeHoverStyle(
+                `edge-${currentNode.parentId}-${currentNode.id}`,
+                1,
+                2.35,
+            );
+            currentNode = nodesById.get(currentNode.parentId) ?? null;
+        }
+
+        for (const child of childrenByParentId.get(hoveredNodeId) ?? []) {
+            applyRadialEdgeHoverStyle(`edge-${hoveredNodeId}-${child.id}`, 1, 2.15);
+
+            for (const grandchild of childrenByParentId.get(child.id) ?? []) {
+                applyRadialEdgeHoverStyle(
+                    `edge-${child.id}-${grandchild.id}`,
+                    0.68,
+                    1.85,
+                );
+            }
+        }
+    }, [
+        applyRadialEdgeHoverStyle,
+        childrenByParentId,
+        nodesById,
+    ]);
+
+    const handleRadialNodeMouseLeave = useCallback(() => {
+        resetRadialEdgeHoverStyles();
+    }, [resetRadialEdgeHoverStyles]);
+
     useEffect(() => {
         if (!snapshot) {
             return;
@@ -2016,6 +2138,8 @@ export function RootTreePanel({
                                             panOnScroll={false}
                                             zoomOnScroll
                                             zoomOnPinch
+                                            onNodeMouseEnter={handleRadialNodeMouseEnter}
+                                            onNodeMouseLeave={handleRadialNodeMouseLeave}
                                             fitView
                                             fitViewOptions={{
                                                 padding: 0.28,

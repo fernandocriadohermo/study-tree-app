@@ -225,6 +225,8 @@ export type StudyTreeNodeData = Record<string, unknown> & {
         nodeId: number,
         learningStatus: NodeDto['learningStatus'],
     ) => Promise<void> | void;
+    onHoverNode?: (nodeId: number) => void;
+    onClearHoverNode?: () => void;
 };
 
 export type StudyTreeFlowNode = Node<StudyTreeNodeData, 'studyTreeNode'>;
@@ -233,6 +235,7 @@ interface BuildVisualTreeInput {
     nodes: NodeDto[];
     rootNodeId: number;
     selectedNodeId: number;
+    hoveredNodeId?: number | null;
     isBusy: boolean;
     layoutDirection?: VisualTreeLayoutDirection;
     onSelectNode: (nodeId: number) => Promise<void> | void;
@@ -247,6 +250,8 @@ interface BuildVisualTreeInput {
         nodeId: number,
         learningStatus: NodeDto['learningStatus'],
     ) => Promise<void> | void;
+    onHoverNode?: (nodeId: number) => void;
+    onClearHoverNode?: () => void;
 }
 
 function sortBySiblingOrder(nodes: NodeDto[]): NodeDto[] {
@@ -1184,6 +1189,7 @@ export function buildVisualTree({
     nodes,
     rootNodeId,
     selectedNodeId,
+    hoveredNodeId = null,
     isBusy,
     layoutDirection = 'horizontal',
     onSelectNode,
@@ -1192,6 +1198,8 @@ export function buildVisualTree({
     onQuickCreateChild,
     onQuickDeleteLeaf,
     onQuickSetLearningStatus = () => { },
+    onHoverNode,
+    onClearHoverNode,
 }: BuildVisualTreeInput): {
     flowNodes: StudyTreeFlowNode[];
     flowEdges: Edge[];
@@ -1241,10 +1249,35 @@ export function buildVisualTree({
     const rootChildren = childrenByParentId.get(resolvedRootNodeId) ?? [];
     const rootBranchIndexById = new Map<number, number>();
     const rootBranchIdByNodeId = new Map<number, number | null>();
+    const hoverPathNodeIds = new Set<number>();
+    const hoverChildNodeIds = new Set<number>();
+    const hoverGrandchildNodeIds = new Set<number>();
 
     rootChildren.forEach((child, index) => {
         rootBranchIndexById.set(child.id, index);
     });
+
+    if (layoutDirection === 'radial' && hoveredNodeId !== null) {
+        let currentNode = nodesById.get(hoveredNodeId) ?? null;
+
+        while (currentNode) {
+            hoverPathNodeIds.add(currentNode.id);
+
+            if (currentNode.parentId === null) {
+                break;
+            }
+
+            currentNode = nodesById.get(currentNode.parentId) ?? null;
+        }
+
+        for (const child of childrenByParentId.get(hoveredNodeId) ?? []) {
+            hoverChildNodeIds.add(child.id);
+
+            for (const grandchild of childrenByParentId.get(child.id) ?? []) {
+                hoverGrandchildNodeIds.add(grandchild.id);
+            }
+        }
+    }
 
     function getRootBranchId(node: NodeDto): number | null {
         const cachedRootBranchId = rootBranchIdByNodeId.get(node.id);
@@ -1319,6 +1352,8 @@ export function buildVisualTree({
                 onQuickCreateChild,
                 onQuickDeleteLeaf,
                 onQuickSetLearningStatus,
+                onHoverNode,
+                onClearHoverNode,
             },
         };
     });
@@ -1336,6 +1371,20 @@ export function buildVisualTree({
         const parentNode = nodesById.get(parentId);
         const parentPosition = positions.get(parentId);
         const childPosition = positions.get(node.id);
+        const hasHoveredNode =
+            layoutDirection === 'radial' && hoveredNodeId !== null;
+        const isHoverPathConnection =
+            hasHoveredNode &&
+            hoverPathNodeIds.has(parentId) &&
+            hoverPathNodeIds.has(node.id);
+        const isHoverChildConnection =
+            hasHoveredNode && parentId === hoveredNodeId;
+        const isHoverGrandchildConnection =
+            hasHoveredNode && hoverChildNodeIds.has(parentId);
+        const isHoverRelatedConnection =
+            isHoverPathConnection ||
+            isHoverChildConnection ||
+            isHoverGrandchildConnection;
         const rootBranchId = getRootBranchId(node);
         const rootBranchIndex =
             rootBranchId === null
@@ -1346,9 +1395,23 @@ export function buildVisualTree({
                 ? getRadialBranchEdgeColor(
                     rootBranchIndex,
                     childPosition?.depth ?? 1,
-                    isActiveConnection,
+                    isActiveConnection || isHoverPathConnection,
                 )
                 : 'rgba(96, 165, 250, 0.58)';
+        const edgeOpacity = hasHoveredNode
+            ? isHoverRelatedConnection
+                ? isHoverGrandchildConnection
+                    ? 0.68
+                    : 1
+                : 0.32
+            : 1;
+        const radialEdgeWidth = isHoverPathConnection
+            ? 2.35
+            : isHoverChildConnection
+                ? 2.15
+                : isHoverGrandchildConnection
+                    ? 1.85
+                    : 1.65;
         let radialSourceHandle: string | undefined;
         let radialTargetHandle: string | undefined;
 
@@ -1415,19 +1478,32 @@ export function buildVisualTree({
                 sourceHandle: radialSourceHandle ?? 'source',
                 targetHandle: radialTargetHandle ?? 'target',
                 type: getVisualEdgeType(layoutDirection),
-                className: isActiveConnection
-                    ? 'is-active-connection'
-                    : 'is-passive-connection',
+                className: [
+                    isActiveConnection
+                        ? 'is-active-connection'
+                        : 'is-passive-connection',
+                    isHoverPathConnection ? 'is-hover-path-connection' : '',
+                    isHoverChildConnection ? 'is-hover-child-connection' : '',
+                    isHoverGrandchildConnection
+                        ? 'is-hover-grandchild-connection'
+                        : '',
+                    hasHoveredNode && !isHoverRelatedConnection
+                        ? 'is-hover-dimmed-connection'
+                        : '',
+                ]
+                    .filter(Boolean)
+                    .join(' '),
                 selectable: false,
                 focusable: false,
                 animated: false,
                 style: {
                     '--tree-edge-color': edgeColor,
-                    '--tree-edge-width': layoutDirection === 'radial' ? '1.65px' : '2.5px',
-                    '--tree-edge-width-active': layoutDirection === 'radial' ? '1.95px' : '3.2px',
-                    '--tree-edge-width-passive': layoutDirection === 'radial' ? '1.65px' : '2px',
+                    '--tree-edge-width': layoutDirection === 'radial' ? `${radialEdgeWidth}px` : '2.5px',
+                    '--tree-edge-width-active': layoutDirection === 'radial' ? `${Math.max(radialEdgeWidth, 1.95)}px` : '3.2px',
+                    '--tree-edge-width-passive': layoutDirection === 'radial' ? `${radialEdgeWidth}px` : '2px',
+                    opacity: edgeOpacity,
                     stroke: edgeColor,
-                    strokeWidth: layoutDirection === 'radial' ? 1.65 : 2.5,
+                    strokeWidth: layoutDirection === 'radial' ? radialEdgeWidth : 2.5,
                 } as Edge['style'],
                 markerEnd:
                     layoutDirection === 'radial'
