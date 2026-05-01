@@ -6,6 +6,7 @@ import { RootTreePanel } from './features/tree/components/RootTreePanel';
 
 export default function App() {
   const [isDetailsMaximized, setIsDetailsMaximized] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const {
     documents,
@@ -51,11 +52,14 @@ export default function App() {
   } = useDocumentsHome();
 
   return (
-    <div className={`app-shell${isDetailsMaximized ? ' app-shell--details-maximized' : ''}`}>
+    <div
+      className={`app-shell${isDetailsMaximized ? ' app-shell--details-maximized' : ''}${isSidebarCollapsed ? ' app-shell--sidebar-collapsed' : ''}`}
+    >
       {!isDetailsMaximized ? (
         <DocumentsSidebar
           documents={documents}
           activeDocumentId={activeDocumentId}
+          isCollapsed={isSidebarCollapsed}
           status={status}
           errorMessage={errorMessage}
           isCreating={isCreating}
@@ -73,6 +77,7 @@ export default function App() {
           onOpenDocument={openDocument}
           onDeleteDocument={deleteDocument}
           onCopyDocument={copyDocument}
+          onCollapsedChange={setIsSidebarCollapsed}
         />
       ) : null}
 

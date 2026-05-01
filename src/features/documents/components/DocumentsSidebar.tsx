@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import type { DocumentListItem } from '../../../shared/documents/contracts';
 
 interface DocumentsSidebarProps {
     documents: DocumentListItem[];
     activeDocumentId: number | null;
+    isCollapsed: boolean;
     status: 'idle' | 'loading' | 'ready' | 'error';
     errorMessage: string | null;
     isCreating: boolean;
@@ -21,6 +22,7 @@ interface DocumentsSidebarProps {
     onOpenDocument: (documentId: number) => Promise<void> | void;
     onDeleteDocument: (documentId: number) => Promise<void> | void;
     onCopyDocument: (documentId: number) => Promise<void> | void;
+    onCollapsedChange: (isCollapsed: boolean) => void;
 }
 
 function formatTimestamp(timestamp: number): string {
@@ -67,9 +69,44 @@ function ExportDocumentIcon() {
     );
 }
 
+function LibraryIcon() {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true" className="documents-rail__icon">
+            <path
+                d="M2.5 2.25A1.25 1.25 0 0 1 3.75 1h8.5a1.25 1.25 0 0 1 1.25 1.25v11.5A1.25 1.25 0 0 1 12.25 15h-8.5a1.25 1.25 0 0 1-1.25-1.25V2.25Zm1.5.25v11h8v-11H4Z"
+                fill="currentColor"
+            />
+            <path
+                d="M5.25 4.25h5.5v1.5h-5.5v-1.5Zm0 3h5.5v1.5h-5.5v-1.5Zm0 3h3.5v1.5h-3.5v-1.5Z"
+                fill="currentColor"
+            />
+        </svg>
+    );
+}
+
+function PlusIcon() {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true" className="documents-rail__icon">
+            <path d="M7.25 2h1.5v5.25H14v1.5H8.75V14h-1.5V8.75H2v-1.5h5.25V2Z" fill="currentColor" />
+        </svg>
+    );
+}
+
+function CollapseSidebarIcon() {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true" className="documents-sidebar__collapse-icon">
+            <path
+                d="M2.5 2.25A1.25 1.25 0 0 1 3.75 1h8.5a1.25 1.25 0 0 1 1.25 1.25v11.5A1.25 1.25 0 0 1 12.25 15h-8.5a1.25 1.25 0 0 1-1.25-1.25V2.25Zm1.5.25v11h2.75v-11H4Zm4.25 0v11H12v-11H8.25Z"
+                fill="currentColor"
+            />
+        </svg>
+    );
+}
+
 export function DocumentsSidebar({
     documents,
     activeDocumentId,
+    isCollapsed,
     status,
     errorMessage,
     isCreating,
@@ -87,10 +124,12 @@ export function DocumentsSidebar({
     onOpenDocument,
     onDeleteDocument,
     onCopyDocument,
+    onCollapsedChange,
 }: DocumentsSidebarProps) {
     const [draftTitle, setDraftTitle] = useState('');
     const [isExportPanelOpen, setIsExportPanelOpen] = useState(false);
     const [selectedExportDocumentIds, setSelectedExportDocumentIds] = useState<number[]>([]);
+    const titleInputRef = useRef<HTMLInputElement | null>(null);
 
     const transferErrorMessage =
         importDocumentsErrorMessage ?? exportDocumentErrorMessage;
@@ -141,6 +180,20 @@ export function DocumentsSidebar({
         setIsExportPanelOpen(true);
     };
 
+    const expandSidebar = () => {
+        onCollapsedChange(false);
+    };
+
+    const handleExpandForCreate = () => {
+        expandSidebar();
+        window.requestAnimationFrame(() => titleInputRef.current?.focus());
+    };
+
+    const handleCollapsedExport = () => {
+        expandSidebar();
+        handleOpenExportPanel();
+    };
+
     const handleToggleExportDocument = (documentId: number) => {
         setSelectedExportDocumentIds((current) => {
             if (current.includes(documentId)) {
@@ -182,11 +235,78 @@ export function DocumentsSidebar({
         setIsExportPanelOpen(false);
     };
 
+    if (isCollapsed) {
+        return (
+            <aside className="documents-sidebar documents-sidebar--collapsed" aria-label="Biblioteca local colapsada">
+                <div className="documents-rail">
+                    <button
+                        type="button"
+                        className="documents-rail__button documents-rail__button--primary"
+                        onClick={expandSidebar}
+                        aria-label="Expandir biblioteca"
+                        title="Expandir biblioteca"
+                    >
+                        <LibraryIcon />
+                    </button>
+
+                    <div className="documents-rail__divider" />
+
+                    <button
+                        type="button"
+                        className="documents-rail__button"
+                        onClick={handleExpandForCreate}
+                        disabled={isCreating}
+                        aria-label="Nuevo documento"
+                        title="Nuevo documento"
+                    >
+                        <PlusIcon />
+                    </button>
+
+                    <button
+                        type="button"
+                        className="documents-rail__button"
+                        onClick={() => void onImportDocuments()}
+                        disabled={isCreating || isImportingDocuments || isExportingDocument}
+                        aria-label="Importar documento"
+                        title="Importar documento"
+                    >
+                        <ImportDocumentIcon />
+                    </button>
+
+                    <button
+                        type="button"
+                        className="documents-rail__button"
+                        onClick={handleCollapsedExport}
+                        disabled={!canOpenExportPanel}
+                        aria-label="Exportar documentos"
+                        title={documents.length === 0 ? 'No hay documentos para exportar' : 'Exportar documentos'}
+                    >
+                        <ExportDocumentIcon />
+                    </button>
+
+                    <div className="documents-rail__spacer" />
+                </div>
+            </aside>
+        );
+    }
+
     return (
         <aside className="documents-sidebar">
             <div className="documents-sidebar__header">
-                <div className="documents-sidebar__eyebrow">P1 · documentos</div>
-                <h1 className="documents-sidebar__title">Biblioteca local</h1>
+                <div className="documents-sidebar__header-copy">
+                    <div className="documents-sidebar__eyebrow">P1 · documentos</div>
+                    <h1 className="documents-sidebar__title">Biblioteca local</h1>
+                </div>
+
+                <button
+                    type="button"
+                    className="documents-sidebar__collapse-button"
+                    onClick={() => onCollapsedChange(true)}
+                    aria-label="Colapsar biblioteca"
+                    title="Colapsar biblioteca"
+                >
+                    <CollapseSidebarIcon />
+                </button>
             </div>
 
             <form className="documents-create-form" onSubmit={handleSubmit}>
@@ -195,6 +315,7 @@ export function DocumentsSidebar({
                 </label>
 
                 <input
+                    ref={titleInputRef}
                     id="document-title"
                     className="documents-create-form__input"
                     type="text"
