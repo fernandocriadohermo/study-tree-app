@@ -41,10 +41,17 @@ export interface SelectedNodeContentDto {
     updatedAt: number;
 }
 
+export interface NodeSearchContentDto {
+    nodeId: number;
+    note: string | null;
+    body: string;
+}
+
 export interface OpenDocumentSnapshotDto {
     document: DocumentDto;
     rootNodeId: number;
     nodes: NodeDto[];
+    nodeContents: NodeSearchContentDto[];
     viewState: DocumentViewStateDto;
     selectedNodeContent: SelectedNodeContentDto | null;
 }

@@ -209,6 +209,7 @@ export type StudyTreeNodeData = Record<string, unknown> & {
     targetHandlePosition?: Position;
     isActive: boolean;
     isContextual: boolean;
+    isSearchMatch?: boolean;
     isBusy: boolean;
     hasChildren: boolean;
     isCollapsed: boolean;
@@ -236,6 +237,7 @@ interface BuildVisualTreeInput {
     rootNodeId: number;
     selectedNodeId: number;
     hoveredNodeId?: number | null;
+    searchMatchNodeIds?: Set<number>;
     isBusy: boolean;
     layoutDirection?: VisualTreeLayoutDirection;
     onSelectNode: (nodeId: number) => Promise<void> | void;
@@ -1397,6 +1399,7 @@ export function buildVisualTree({
     rootNodeId,
     selectedNodeId,
     hoveredNodeId = null,
+    searchMatchNodeIds,
     isBusy,
     layoutDirection = 'horizontal',
     onSelectNode,
@@ -1521,6 +1524,7 @@ export function buildVisualTree({
         const isDirectParentOfSelected = selectedNode?.parentId === node.id;
         const isDirectChildOfSelected = node.parentId === selectedNodeId;
         const isContextual = !isActive && (isDirectParentOfSelected || isDirectChildOfSelected);
+        const isSearchMatch = searchMatchNodeIds?.has(node.id) ?? false;
         const hasChildren = (childrenByParentId.get(node.id) ?? []).length > 0;
         const canDelete = node.parentId !== null && !hasChildren;
         const sourceHandlePosition = getSourcePosition(layoutDirection, position);
@@ -1535,7 +1539,13 @@ export function buildVisualTree({
             },
             sourcePosition: sourceHandlePosition,
             targetPosition: targetHandlePosition,
-            zIndex: isActive ? 1000 : isContextual ? 500 : position.depth,
+            zIndex: isActive
+                ? 1200
+                : isSearchMatch
+                    ? 700
+                    : isContextual
+                        ? 500
+                        : position.depth,
             draggable: false,
             selectable: false,
             data: {
@@ -1549,6 +1559,7 @@ export function buildVisualTree({
                 targetHandlePosition,
                 isActive,
                 isContextual,
+                isSearchMatch,
                 isBusy,
                 hasChildren,
                 isCollapsed: node.isCollapsed,
@@ -1566,6 +1577,31 @@ export function buildVisualTree({
     });
 
     const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
+    const searchPathEdgeIds = new Set<string>();
+    const activeSearchPathEdgeIds = new Set<string>();
+
+    const collectPathEdgeIds = (nodeId: number, output: Set<string>) => {
+        let currentNode = nodesById.get(nodeId);
+
+        while (currentNode?.parentId !== null && currentNode?.parentId !== undefined) {
+            const parentId = currentNode.parentId;
+
+            if (!visibleNodeIds.has(parentId) || !visibleNodeIds.has(currentNode.id)) {
+                break;
+            }
+
+            output.add(`edge-${parentId}-${currentNode.id}`);
+            currentNode = nodesById.get(parentId);
+        }
+    };
+
+    for (const nodeId of searchMatchNodeIds ?? []) {
+        collectPathEdgeIds(nodeId, searchPathEdgeIds);
+    }
+
+    if (searchMatchNodeIds?.has(selectedNodeId)) {
+        collectPathEdgeIds(selectedNodeId, activeSearchPathEdgeIds);
+    }
 
     const flowEdges: Edge[] = visibleNodes.flatMap((node) => {
         if (node.parentId === null || !visibleNodeIds.has(node.parentId)) {
@@ -1573,6 +1609,9 @@ export function buildVisualTree({
         }
 
         const parentId = node.parentId;
+        const edgeId = `edge-${parentId}-${node.id}`;
+        const isSearchPathConnection = searchPathEdgeIds.has(edgeId);
+        const isSearchActivePathConnection = activeSearchPathEdgeIds.has(edgeId);
         const isActiveConnection =
             node.id === selectedNodeId || parentId === selectedNodeId;
         const parentNode = nodesById.get(parentId);
@@ -1598,7 +1637,11 @@ export function buildVisualTree({
                 ? undefined
                 : rootBranchIndexById.get(rootBranchId);
         const edgeColor =
-            layoutDirection === 'radial'
+            isSearchActivePathConnection
+                ? 'rgba(191, 219, 254, 0.92)'
+                : isSearchPathConnection
+                    ? 'rgba(250, 204, 21, 0.82)'
+                    : layoutDirection === 'radial'
                 ? getRadialBranchEdgeColor(
                     rootBranchIndex,
                     childPosition?.depth ?? 1,
@@ -1614,6 +1657,10 @@ export function buildVisualTree({
             : 1;
         const radialEdgeWidth = isHoverPathConnection
             ? 2.35
+            : isSearchActivePathConnection
+                ? 2.7
+                : isSearchPathConnection
+                    ? 2.35
             : isHoverChildConnection
                 ? 2.15
                 : isHoverGrandchildConnection
@@ -1650,7 +1697,7 @@ export function buildVisualTree({
 
         return [
             {
-                id: `edge-${parentId}-${node.id}`,
+                id: edgeId,
                 source: String(parentId),
                 target: String(node.id),
                 sourceHandle: radialSourceHandle ?? 'source',
@@ -1664,6 +1711,10 @@ export function buildVisualTree({
                     isHoverChildConnection ? 'is-hover-child-connection' : '',
                     isHoverGrandchildConnection
                         ? 'is-hover-grandchild-connection'
+                        : '',
+                    isSearchPathConnection ? 'is-search-path-connection' : '',
+                    isSearchActivePathConnection
+                        ? 'is-search-active-path-connection'
                         : '',
                     hasHoveredNode && !isHoverRelatedConnection
                         ? 'is-hover-dimmed-connection'
@@ -1687,12 +1738,12 @@ export function buildVisualTree({
                     layoutDirection === 'radial'
                         ? {
                             type: MarkerType.ArrowClosed,
-                            width: isActiveConnection ? 14 : 10,
-                            height: isActiveConnection ? 14 : 10,
+                            width: isSearchActivePathConnection || isActiveConnection ? 14 : 10,
+                            height: isSearchActivePathConnection || isActiveConnection ? 14 : 10,
                             color: edgeColor,
                         }
                         : undefined,
-                zIndex: 0,
+                zIndex: isSearchActivePathConnection ? 80 : isSearchPathConnection ? 60 : 0,
             },
         ];
     });

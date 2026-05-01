@@ -62,10 +62,19 @@ pub struct SelectedNodeContentDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct NodeSearchContentDto {
+    pub node_id: i64,
+    pub note: Option<String>,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpenDocumentSnapshotDto {
     pub document: DocumentDto,
     pub root_node_id: i64,
     pub nodes: Vec<NodeDto>,
+    pub node_contents: Vec<NodeSearchContentDto>,
     pub view_state: DocumentViewStateDto,
     pub selected_node_content: Option<SelectedNodeContentDto>,
 }

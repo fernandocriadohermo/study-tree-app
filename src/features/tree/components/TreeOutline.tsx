@@ -4,6 +4,7 @@ interface TreeOutlineProps {
     nodes: NodeDto[];
     rootNodeId: number;
     selectedNodeId: number;
+    searchMatchNodeIds?: Set<number>;
     isBusy: boolean;
     onSelectNode: (nodeId: number) => Promise<void> | void;
     onOpenDetailsWorkspace: (nodeId: number) => Promise<void> | void;
@@ -89,6 +90,7 @@ export function TreeOutline({
     nodes,
     rootNodeId,
     selectedNodeId,
+    searchMatchNodeIds,
     isBusy,
     onSelectNode,
     onOpenDetailsWorkspace,
@@ -127,11 +129,13 @@ export function TreeOutline({
             <div className="tree-outline__list" aria-label="Vista esquema del árbol">
                 {visibleNodes.map(({ node, depth, hasChildren }) => {
                     const isSelected = node.id === selectedNodeId;
+                    const isSearchMatch = searchMatchNodeIds?.has(node.id) ?? false;
+                    const isActiveSearchMatch = isSelected && isSearchMatch;
 
                     return (
                         <div
                             key={node.id}
-                            className={`tree-outline__row${isSelected ? ' is-selected' : ''}`}
+                            className={`tree-outline__row${isSelected ? ' is-selected' : ''}${isSearchMatch ? ' is-search-match' : ''}${isActiveSearchMatch ? ' is-search-active' : ''}`}
                             style={{ paddingLeft: `${12 + depth * 22}px` }}
                             data-testid={`tree-outline-node-${node.id}`}
                             role="button"

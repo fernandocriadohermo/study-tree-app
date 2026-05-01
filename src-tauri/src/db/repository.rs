@@ -8,8 +8,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 #[cfg(test)]
 use super::migrations::apply_migrations;
 use super::models::{
-    DocumentDto, DocumentListItemDto, DocumentViewStateDto, NodeDto, OpenDocumentSnapshotDto,
-    SelectedNodeContentDto, ImportDocumentsFromFileResultDto,
+    DocumentDto, DocumentListItemDto, DocumentViewStateDto, ImportDocumentsFromFileResultDto,
+    NodeDto, NodeSearchContentDto, OpenDocumentSnapshotDto, SelectedNodeContentDto,
 };
 
 #[derive(Clone)]
@@ -1440,6 +1440,8 @@ impl Database {
             nodes.push(row.map_err(|error| format!("No se pudo leer un nodo: {error}"))?);
         }
 
+        let node_contents = self.get_document_search_contents(document_id)?;
+
         let view_state = self
             .connection
             .query_row(
@@ -1480,9 +1482,56 @@ impl Database {
             document,
             root_node_id,
             nodes,
+            node_contents,
             view_state,
             selected_node_content,
         }))
+    }
+
+    fn get_document_search_contents(
+        &self,
+        document_id: i64,
+    ) -> Result<Vec<NodeSearchContentDto>, String> {
+        let mut statement = self
+            .connection
+            .prepare(
+                r#"
+                SELECT
+                  nodes.id,
+                  node_content.note,
+                  COALESCE(node_content.body, '')
+                FROM nodes
+                LEFT JOIN node_content
+                  ON node_content.node_id = nodes.id
+                WHERE nodes.document_id = ?1
+                ORDER BY nodes.id
+                "#,
+            )
+            .map_err(|error| {
+                format!("No se pudo preparar la lectura de contenidos para busqueda: {error}")
+            })?;
+
+        let rows = statement
+            .query_map([document_id], |row| {
+                Ok(NodeSearchContentDto {
+                    node_id: row.get(0)?,
+                    note: row.get(1)?,
+                    body: row.get(2)?,
+                })
+            })
+            .map_err(|error| {
+                format!("No se pudieron leer los contenidos de busqueda: {error}")
+            })?;
+
+        let mut contents = Vec::new();
+
+        for row in rows {
+            contents.push(row.map_err(|error| {
+                format!("No se pudo leer un contenido de busqueda: {error}")
+            })?);
+        }
+
+        Ok(contents)
     }
 
     fn get_node_content_by_id(

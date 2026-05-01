@@ -81,6 +81,13 @@ function buildSnapshot(
         },
         rootNodeId: 101,
         nodes: [buildRootNode()],
+        nodeContents: [
+            {
+                nodeId: 101,
+                note: null,
+                body: '',
+            },
+        ],
         viewState: {
             documentId: 1,
             selectedNodeId: 101,

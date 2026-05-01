@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
     Background,
     Controls,
@@ -70,6 +70,7 @@ const RADIAL_HANDLE_POSITIONS = [
     Position.Left,
 ];
 const RADIAL_HANDLE_OFFSETS = [25, 50, 75];
+const SEARCH_PREVIEW_RADIUS = 54;
 
 function getRadialHandleStyle(position: Position, offset: number) {
     if (position === Position.Top || position === Position.Bottom) {
@@ -77,6 +78,80 @@ function getRadialHandleStyle(position: Position, offset: number) {
     }
 
     return { top: `${offset}%` };
+}
+
+function stripHtml(value: string): string {
+    return value
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function normalizeSearchText(value: string): string {
+    return value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase();
+}
+
+function getSearchPreview(text: string, normalizedText: string, normalizedQuery: string): string {
+    const matchIndex = normalizedText.indexOf(normalizedQuery);
+
+    if (matchIndex < 0) {
+        return text;
+    }
+
+    const start = Math.max(0, matchIndex - SEARCH_PREVIEW_RADIUS);
+    const end = Math.min(text.length, matchIndex + normalizedQuery.length + SEARCH_PREVIEW_RADIUS);
+    const prefix = start > 0 ? '...' : '';
+    const suffix = end < text.length ? '...' : '';
+
+    return `${prefix}${text.slice(start, end)}${suffix}`;
+}
+
+function renderHighlightedText(text: string, query: string): ReactNode {
+    const normalizedQuery = normalizeSearchText(query.trim());
+
+    if (!normalizedQuery) {
+        return text;
+    }
+
+    const normalizedText = normalizeSearchText(text);
+    const parts: ReactNode[] = [];
+    let searchFrom = 0;
+    let key = 0;
+
+    while (searchFrom < text.length) {
+        const matchIndex = normalizedText.indexOf(normalizedQuery, searchFrom);
+
+        if (matchIndex < 0) {
+            parts.push(text.slice(searchFrom));
+            break;
+        }
+
+        if (matchIndex > searchFrom) {
+            parts.push(text.slice(searchFrom, matchIndex));
+        }
+
+        const matchEnd = matchIndex + normalizedQuery.length;
+        parts.push(
+            <mark key={key} className="search-highlight">
+                {text.slice(matchIndex, matchEnd)}
+            </mark>,
+        );
+        key += 1;
+        searchFrom = matchEnd;
+    }
+
+    return parts;
 }
 
 function isSameViewport(a: Viewport, b: Viewport): boolean {
@@ -337,9 +412,41 @@ function buildVisualModeNodes(
     treeVisibilityMode: TreeVisibilityMode,
     nodesById: Map<number, NodeDto>,
     childrenByParentId: Map<number, NodeDto[]>,
+    searchMatchNodeIds?: Set<number>,
 ): NodeDto[] {
+    const searchExpandedNodeIds = new Set<number>();
+
+    for (const nodeId of searchMatchNodeIds ?? []) {
+        const node = nodesById.get(nodeId);
+
+        if (!node) {
+            continue;
+        }
+
+        const pathIds = getNodePathIds(node, nodesById);
+
+        for (const pathNodeId of pathIds) {
+            searchExpandedNodeIds.add(pathNodeId);
+        }
+    }
+
+    const applySearchExpansion = (visualNodes: NodeDto[]): NodeDto[] => {
+        if (searchExpandedNodeIds.size === 0) {
+            return visualNodes;
+        }
+
+        return visualNodes.map((node) => (
+            searchExpandedNodeIds.has(node.id)
+                ? {
+                    ...node,
+                    isCollapsed: false,
+                }
+                : node
+        ));
+    };
+
     if (treeVisibilityMode === 'free') {
-        return nodes;
+        return applySearchExpansion(nodes);
     }
 
     if (treeVisibilityMode === 'expanded') {
@@ -350,10 +457,10 @@ function buildVisualModeNodes(
     }
 
     if (treeVisibilityMode === 'collapsed') {
-        return nodes.map((node) => ({
+        return applySearchExpansion(nodes.map((node) => ({
             ...node,
             isCollapsed: node.id !== rootNodeId,
-        }));
+        })));
     }
 
     const focusVisibleNodeIds = getFocusVisibleNodeIds(
@@ -369,12 +476,18 @@ function buildVisualModeNodes(
         nodesById,
     );
 
-    return nodes
+    for (const searchExpandedNodeId of searchExpandedNodeIds) {
+        focusVisibleNodeIds.add(searchExpandedNodeId);
+    }
+
+    const focusNodes = nodes
         .filter((node) => focusVisibleNodeIds.has(node.id))
         .map((node) => ({
             ...node,
             isCollapsed: !focusExpandedNodeIds.has(node.id),
         }));
+
+    return applySearchExpansion(focusNodes);
 }
 
 
@@ -404,7 +517,7 @@ function StudyTreeCanvasNode({
 
     return (
         <div
-            className={`visual-tree-node-shell nodrag nopan${isRadialLayout ? ' visual-tree-node-shell--radial' : ''}${isCompactLayout ? ' visual-tree-node-shell--compact' : ''}${isRootNode ? ' visual-tree-node-shell--root' : ''}${data.isActive ? ' is-selected' : ''}${data.isContextual ? ' is-contextual' : ''}`}
+            className={`visual-tree-node-shell nodrag nopan${isRadialLayout ? ' visual-tree-node-shell--radial' : ''}${isCompactLayout ? ' visual-tree-node-shell--compact' : ''}${isRootNode ? ' visual-tree-node-shell--root' : ''}${data.isActive ? ' is-selected' : ''}${data.isContextual ? ' is-contextual' : ''}${data.isSearchMatch ? ' is-search-match' : ''}${data.isActive && data.isSearchMatch ? ' is-search-active' : ''}`}
         >
             {isRadialLayout ? (
                 <>
@@ -580,7 +693,7 @@ function StudyTreeCanvasNode({
                 title={isRadialLayout && !isRootNode ? data.title : undefined}
             >
                 <div
-                    className={`root-tree-node nodrag nopan root-tree-node--${data.learningStatus}${isRadialLayout ? ' root-tree-node--radial' : ''}${isRootNode ? ' root-tree-node--root' : ''}${data.isActive ? ' is-selected' : ''}`}
+                    className={`root-tree-node nodrag nopan root-tree-node--${data.learningStatus}${isRadialLayout ? ' root-tree-node--radial' : ''}${isRootNode ? ' root-tree-node--root' : ''}${data.isActive ? ' is-selected' : ''}${data.isSearchMatch ? ' is-search-match' : ''}${data.isActive && data.isSearchMatch ? ' is-search-active' : ''}`}
                     data-testid={data.kindLabel === 'Raíz' ? 'root-tree-node' : undefined}
                     data-selected={data.isActive ? 'true' : 'false'}
                 >
@@ -963,9 +1076,12 @@ export function RootTreePanel({
     const [isDetailsMaximized, setIsDetailsMaximized] = useState(false);
     const [treeViewMode, setTreeViewMode] = useState<'horizontal' | 'vertical' | 'radial' | 'outline'>('horizontal');
     const [treeVisibilityMode, setTreeVisibilityMode] = useState<TreeVisibilityMode>('free');
+    const [nodeSearchQuery, setNodeSearchQuery] = useState('');
+    const [searchFocusKey, setSearchFocusKey] = useState(0);
 
     const selectedContent = snapshot?.selectedNodeContent ?? null;
     const nodes = snapshot?.nodes ?? [];
+    const nodeContents = snapshot?.nodeContents ?? [];
 
     const nodesById = useMemo(() => {
         const nextMap = new Map<number, NodeDto>();
@@ -1043,6 +1159,111 @@ export function RootTreePanel({
     const originalTitle = selectedNode?.title ?? '';
     const originalNote = selectedContent?.note ?? '';
     const originalBody = selectedContent?.body ?? '';
+    const normalizedNodeSearchQuery = useMemo(
+        () => normalizeSearchText(nodeSearchQuery.trim()),
+        [nodeSearchQuery],
+    );
+    const nodeContentsById = useMemo(() => {
+        const nextMap = new Map<number, { note: string; body: string }>();
+
+        for (const content of nodeContents) {
+            nextMap.set(content.nodeId, {
+                note: content.note ?? '',
+                body: content.body,
+            });
+        }
+
+        if (selectedContent) {
+            nextMap.set(selectedContent.nodeId, {
+                note: draftNote,
+                body: draftBody,
+            });
+        }
+
+        return nextMap;
+    }, [nodeContents, selectedContent, draftNote, draftBody]);
+    const searchResults = useMemo(() => {
+        if (!normalizedNodeSearchQuery) {
+            return [];
+        }
+
+        return nodes
+            .filter((node) => node.id !== snapshot?.rootNodeId)
+            .map((node) => {
+                const content = nodeContentsById.get(node.id) ?? { note: '', body: '' };
+                const title = node.id === selectedNode?.id ? draftTitle : node.title;
+                const note = content.note;
+                const body = stripHtml(content.body);
+                const normalizedTitle = normalizeSearchText(title);
+                const normalizedNote = normalizeSearchText(note);
+                const normalizedBody = normalizeSearchText(body);
+                const fields: Array<{
+                    key: 'title' | 'note' | 'body';
+                    label: string;
+                    text: string;
+                    normalizedText: string;
+                }> = [
+                        {
+                            key: 'title',
+                            label: 'Titulo',
+                            text: title,
+                            normalizedText: normalizedTitle,
+                        },
+                        {
+                            key: 'note',
+                            label: 'Nota',
+                            text: note,
+                            normalizedText: normalizedNote,
+                        },
+                        {
+                            key: 'body',
+                            label: 'Contenido',
+                            text: body,
+                            normalizedText: normalizedBody,
+                        },
+                    ];
+                const matchedFields = fields
+                    .filter((field) => field.normalizedText.includes(normalizedNodeSearchQuery))
+                    .map((field) => ({
+                        key: field.key,
+                        label: field.label,
+                        preview: getSearchPreview(
+                            field.text,
+                            field.normalizedText,
+                            normalizedNodeSearchQuery,
+                        ),
+                    }));
+
+                return matchedFields.length > 0
+                    ? {
+                        node,
+                        matchedFields,
+                    }
+                    : null;
+            })
+            .filter((result): result is {
+                node: NodeDto;
+                matchedFields: Array<{
+                    key: 'title' | 'note' | 'body';
+                    label: string;
+                    preview: string;
+                }>;
+            } => result !== null);
+    }, [
+        nodes,
+        nodeContentsById,
+        normalizedNodeSearchQuery,
+        snapshot?.rootNodeId,
+        selectedNode?.id,
+        draftTitle,
+    ]);
+    const searchMatchNodeIds = useMemo(
+        () => new Set(searchResults.map((result) => result.node.id)),
+        [searchResults],
+    );
+    const selectedNodeSearchResult = selectedNode
+        ? searchResults.find((result) => result.node.id === selectedNode.id) ?? null
+        : null;
 
     const normalizedDraftTitle = draftTitle.trim();
     const isTitleDirty =
@@ -1129,6 +1350,27 @@ export function RootTreePanel({
         }
 
         showDetailsWorkspace();
+    };
+
+    const handleGoToSearchResult = async (direction: 'next' | 'previous') => {
+        if (searchResults.length === 0 || treeBusy) {
+            return;
+        }
+
+        const currentIndex = selectedNodeId === null
+            ? -1
+            : searchResults.findIndex((result) => result.node.id === selectedNodeId);
+        const fallbackIndex = direction === 'next'
+            ? 0
+            : searchResults.length - 1;
+        const nextIndex = currentIndex < 0
+            ? fallbackIndex
+            : direction === 'next'
+                ? (currentIndex + 1) % searchResults.length
+                : (currentIndex - 1 + searchResults.length) % searchResults.length;
+
+        setSearchFocusKey((currentKey) => currentKey + 1);
+        await handleSelectNodeFromCanvas(searchResults[nextIndex].node.id);
     };
 
     const handleToggleNodeCollapseFromCanvas = async (
@@ -1463,6 +1705,7 @@ export function RootTreePanel({
             treeVisibilityMode,
             nodesById,
             childrenByParentId,
+            searchMatchNodeIds,
         );
     }, [
         snapshot,
@@ -1471,6 +1714,7 @@ export function RootTreePanel({
         treeVisibilityMode,
         nodesById,
         childrenByParentId,
+        searchMatchNodeIds,
     ]);
 
     const flowModel = useMemo(() => {
@@ -1485,6 +1729,7 @@ export function RootTreePanel({
             nodes: visualModeNodes,
             rootNodeId: snapshot.rootNodeId,
             selectedNodeId,
+            searchMatchNodeIds,
             isBusy: treeBusy,
             onSelectNode: handleSelectNodeFromCanvas,
             onOpenDetailsWorkspace: handleOpenDetailsWorkspaceFromCanvas,
@@ -1498,6 +1743,7 @@ export function RootTreePanel({
         visualModeNodes,
         selectedNodeId,
         treeBusy,
+        searchMatchNodeIds,
         handleSelectNodeFromCanvas,
         handleOpenDetailsWorkspaceFromCanvas,
         handleToggleNodeCollapseFromCanvas,
@@ -1518,6 +1764,7 @@ export function RootTreePanel({
             nodes: visualModeNodes,
             rootNodeId: snapshot.rootNodeId,
             selectedNodeId,
+            searchMatchNodeIds,
             isBusy: treeBusy,
             layoutDirection: 'vertical',
             onSelectNode: handleSelectNodeFromCanvas,
@@ -1532,6 +1779,7 @@ export function RootTreePanel({
         visualModeNodes,
         selectedNodeId,
         treeBusy,
+        searchMatchNodeIds,
         handleSelectNodeFromCanvas,
         handleOpenDetailsWorkspaceFromCanvas,
         handleToggleNodeCollapseFromCanvas,
@@ -1552,6 +1800,7 @@ export function RootTreePanel({
             nodes: visualModeNodes,
             rootNodeId: snapshot.rootNodeId,
             selectedNodeId,
+            searchMatchNodeIds,
             isBusy: treeBusy,
             layoutDirection: 'radial',
             onSelectNode: handleSelectNodeFromCanvas,
@@ -1566,6 +1815,7 @@ export function RootTreePanel({
         visualModeNodes,
         selectedNodeId,
         treeBusy,
+        searchMatchNodeIds,
         handleSelectNodeFromCanvas,
         handleOpenDetailsWorkspaceFromCanvas,
         handleToggleNodeCollapseFromCanvas,
@@ -1814,6 +2064,9 @@ export function RootTreePanel({
     const horizontalTreeFocusKey = `${snapshot.document.id}:horizontal:${treeViewFocusNodeId}:${layoutSignature}`;
 
     const verticalTreeFocusKey = `${snapshot.document.id}:vertical:${treeViewFocusNodeId}:${verticalLayoutSignature}`;
+    const searchTreeFocusKey = searchFocusKey > 0
+        ? `${snapshot.document.id}:search:${treeViewMode}:${treeViewFocusNodeId}:${searchFocusKey}`
+        : '';
 
     const canvasNodeActions = selectedNode ? (
         <CanvasNodeActions
@@ -2001,6 +2254,57 @@ export function RootTreePanel({
                                         </button>
                                     </div>
 
+                                    <div className="node-search" role="search">
+                                        <label className="visually-hidden" htmlFor="node-search-input">
+                                            Buscar en nodos
+                                        </label>
+                                        <input
+                                            id="node-search-input"
+                                            className="node-search__input"
+                                            type="search"
+                                            value={nodeSearchQuery}
+                                            onChange={(event) => setNodeSearchQuery(event.target.value)}
+                                            placeholder="Buscar termino"
+                                            spellCheck={false}
+                                        />
+                                        <div className="node-search__count" aria-live="polite">
+                                            {normalizedNodeSearchQuery
+                                                ? `${searchResults.length} coincid.`
+                                                : 'Sin busqueda'}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="node-search__nav-button"
+                                            onClick={() => void handleGoToSearchResult('previous')}
+                                            disabled={searchResults.length === 0 || treeBusy}
+                                            aria-label="Coincidencia anterior"
+                                            title="Coincidencia anterior"
+                                        >
+                                            {'<'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="node-search__nav-button"
+                                            onClick={() => void handleGoToSearchResult('next')}
+                                            disabled={searchResults.length === 0 || treeBusy}
+                                            aria-label="Coincidencia siguiente"
+                                            title="Coincidencia siguiente"
+                                        >
+                                            {'>'}
+                                        </button>
+                                        {nodeSearchQuery ? (
+                                            <button
+                                                type="button"
+                                                className="node-search__clear-button"
+                                                onClick={() => setNodeSearchQuery('')}
+                                                aria-label="Limpiar busqueda"
+                                                title="Limpiar busqueda"
+                                            >
+                                                x
+                                            </button>
+                                        ) : null}
+                                    </div>
+
                                     <button
                                         type="button"
                                         className="tree-canvas-card__maximize-button"
@@ -2056,6 +2360,14 @@ export function RootTreePanel({
                                                 zoom={0.55}
                                                 duration={180}
                                             />
+                                            {searchTreeFocusKey ? (
+                                                <TreeViewFocusBridge
+                                                    focusNodeId={treeViewFocusNodeId}
+                                                    focusKey={searchTreeFocusKey}
+                                                    zoom={0.72}
+                                                    duration={260}
+                                                />
+                                            ) : null}
                                             <Background gap={24} size={1} />
                                             <Controls
                                                 className="tree-canvas__zoom-controls"
@@ -2107,6 +2419,14 @@ export function RootTreePanel({
                                                 zoom={0.42}
                                                 duration={180}
                                             />
+                                            {searchTreeFocusKey ? (
+                                                <TreeViewFocusBridge
+                                                    focusNodeId={treeViewFocusNodeId}
+                                                    focusKey={searchTreeFocusKey}
+                                                    zoom={0.62}
+                                                    duration={260}
+                                                />
+                                            ) : null}
                                             <Background gap={24} size={1} />
                                             <Controls
                                                 className="tree-canvas__zoom-controls"
@@ -2154,6 +2474,14 @@ export function RootTreePanel({
                                                 layoutSignature={radialLayoutSignature}
                                                 canvasContainerRef={treeRadialRef}
                                             />
+                                            {searchTreeFocusKey ? (
+                                                <TreeViewFocusBridge
+                                                    focusNodeId={treeViewFocusNodeId}
+                                                    focusKey={searchTreeFocusKey}
+                                                    zoom={0.95}
+                                                    duration={280}
+                                                />
+                                            ) : null}
                                             <Background gap={24} size={1} />
                                             <Controls
                                                 className="tree-canvas__zoom-controls"
@@ -2175,6 +2503,7 @@ export function RootTreePanel({
                                                 nodes={visualModeNodes}
                                                 rootNodeId={snapshot.rootNodeId}
                                                 selectedNodeId={selectedNodeId}
+                                                searchMatchNodeIds={searchMatchNodeIds}
                                                 isBusy={treeBusy}
                                                 onSelectNode={handleSelectNodeFromCanvas}
                                                 onOpenDetailsWorkspace={handleOpenDetailsWorkspaceFromCanvas}
@@ -2197,6 +2526,56 @@ export function RootTreePanel({
                         <div className="details-panel__topbar">
                             <div className="root-tree-panel__section-label details-panel__kicker">
                                 Nodo en estudio
+                            </div>
+                            <div className="node-search node-search--details" role="search">
+                                <label className="visually-hidden" htmlFor="node-search-details-input">
+                                    Buscar en nodos
+                                </label>
+                                <input
+                                    id="node-search-details-input"
+                                    className="node-search__input"
+                                    type="search"
+                                    value={nodeSearchQuery}
+                                    onChange={(event) => setNodeSearchQuery(event.target.value)}
+                                    placeholder="Buscar termino"
+                                    spellCheck={false}
+                                />
+                                <div className="node-search__count" aria-live="polite">
+                                    {normalizedNodeSearchQuery
+                                        ? `${searchResults.length} coincid.`
+                                        : 'Sin busqueda'}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="node-search__nav-button"
+                                    onClick={() => void handleGoToSearchResult('previous')}
+                                    disabled={searchResults.length === 0 || treeBusy}
+                                    aria-label="Coincidencia anterior"
+                                    title="Coincidencia anterior"
+                                >
+                                    {'<'}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="node-search__nav-button"
+                                    onClick={() => void handleGoToSearchResult('next')}
+                                    disabled={searchResults.length === 0 || treeBusy}
+                                    aria-label="Coincidencia siguiente"
+                                    title="Coincidencia siguiente"
+                                >
+                                    {'>'}
+                                </button>
+                                {nodeSearchQuery ? (
+                                    <button
+                                        type="button"
+                                        className="node-search__clear-button"
+                                        onClick={() => setNodeSearchQuery('')}
+                                        aria-label="Limpiar busqueda"
+                                        title="Limpiar busqueda"
+                                    >
+                                        x
+                                    </button>
+                                ) : null}
                             </div>
                             <button
                                 type="button"
@@ -2302,6 +2681,22 @@ export function RootTreePanel({
                                 Pulsa Enter o sal del campo para guardar el nuevo título.
                             </div>
                         </section>
+
+                        {normalizedNodeSearchQuery && selectedNodeSearchResult ? (
+                            <section className="content-card node-search-card">
+                                <div className="content-card__label">Coincidencias en este nodo</div>
+                                <div className="node-search-card__matches">
+                                    {selectedNodeSearchResult.matchedFields.map((field) => (
+                                        <div key={field.key} className="node-search-card__match">
+                                            <div className="node-search-card__field">{field.label}</div>
+                                            <div className="node-search-card__preview">
+                                                {renderHighlightedText(field.preview, nodeSearchQuery)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
+                        ) : null}
 
                         <section className="content-card learning-status-card">
                             <label
