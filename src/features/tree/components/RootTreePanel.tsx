@@ -111,10 +111,11 @@ function getMinimapNodeStrokeColor(node: StudyTreeFlowNode): string {
 
 interface CanvasMinimapProps {
     nodes: StudyTreeFlowNode[];
+    edges: Edge[];
     canvasContainerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-function CanvasMinimap({ nodes, canvasContainerRef }: CanvasMinimapProps) {
+function CanvasMinimap({ nodes, edges, canvasContainerRef }: CanvasMinimapProps) {
     const viewport = useViewport();
     const { setCenter } = useReactFlow<StudyTreeFlowNode, Edge>();
     const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
@@ -240,6 +241,15 @@ function CanvasMinimap({ nodes, canvasContainerRef }: CanvasMinimapProps) {
             y: toMinimapY(visibleFlowRect.y + visibleFlowRect.height / 2),
         }
         : null;
+    const nodeCenterById = new Map(
+        nodeRects.map((rect) => [
+            rect.node.id,
+            {
+                x: toMinimapX(rect.x + rect.width / 2),
+                y: toMinimapY(rect.y + rect.height / 2),
+            },
+        ]),
+    );
 
     const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
         const svgRect = event.currentTarget.getBoundingClientRect();
@@ -257,7 +267,7 @@ function CanvasMinimap({ nodes, canvasContainerRef }: CanvasMinimapProps) {
     return (
         <Panel
             className="tree-canvas__minimap nodrag nopan"
-            position="bottom-right"
+            position="bottom-left"
             aria-label="Minimapa del arbol"
         >
             <svg
@@ -275,10 +285,32 @@ function CanvasMinimap({ nodes, canvasContainerRef }: CanvasMinimapProps) {
                     rx="12"
                 />
 
+                <g className="tree-canvas__minimap-edges">
+                    {edges.map((edge) => {
+                        const source = nodeCenterById.get(edge.source);
+                        const target = nodeCenterById.get(edge.target);
+
+                        if (!source || !target) {
+                            return null;
+                        }
+
+                        return (
+                            <line
+                                key={edge.id}
+                                className="tree-canvas__minimap-edge"
+                                x1={source.x}
+                                y1={source.y}
+                                x2={target.x}
+                                y2={target.y}
+                            />
+                        );
+                    })}
+                </g>
+
                 {nodeRects.map((rect) => {
                     const centerX = toMinimapX(rect.x + rect.width / 2);
                     const centerY = toMinimapY(rect.y + rect.height / 2);
-                    const radius = rect.node.data.isActive ? 3.6 : rect.node.data.isSearchMatch ? 3.2 : 2.1;
+                    const radius = rect.node.data.isActive ? 3.1 : rect.node.data.isSearchMatch ? 2.8 : 1.45;
 
                     return (
                         <circle
@@ -2178,7 +2210,7 @@ export function RootTreePanel({
 
         edgeElement.style.opacity = String(opacity);
         edgeElement.style.setProperty('--tree-edge-width', `${width}px`);
-        edgeElement.style.setProperty('--tree-edge-width-active', `${Math.max(width, 1.95)}px`);
+        edgeElement.style.setProperty('--tree-edge-width-active', `${Math.max(width, 2.45)}px`);
         edgeElement.style.setProperty('--tree-edge-width-passive', `${width}px`);
 
         edgeElement
@@ -2187,7 +2219,7 @@ export function RootTreePanel({
                 pathElement.style.opacity = String(opacity);
                 pathElement.style.strokeWidth = `${width}px`;
                 pathElement.style.setProperty('--tree-edge-width', `${width}px`);
-                pathElement.style.setProperty('--tree-edge-width-active', `${Math.max(width, 1.95)}px`);
+                pathElement.style.setProperty('--tree-edge-width-active', `${Math.max(width, 2.45)}px`);
                 pathElement.style.setProperty('--tree-edge-width-passive', `${width}px`);
             });
     }, []);
@@ -2203,18 +2235,18 @@ export function RootTreePanel({
             ?.querySelectorAll<SVGGElement>('.react-flow__edge')
             .forEach((edgeElement) => {
                 edgeElement.style.opacity = '0.32';
-                edgeElement.style.setProperty('--tree-edge-width', '1.65px');
-                edgeElement.style.setProperty('--tree-edge-width-active', '1.95px');
-                edgeElement.style.setProperty('--tree-edge-width-passive', '1.65px');
+                edgeElement.style.setProperty('--tree-edge-width', '2.15px');
+                edgeElement.style.setProperty('--tree-edge-width-active', '2.45px');
+                edgeElement.style.setProperty('--tree-edge-width-passive', '2.15px');
 
                 edgeElement
                     .querySelectorAll<SVGPathElement>('.react-flow__edge-path')
                     .forEach((pathElement) => {
                         pathElement.style.opacity = '0.32';
-                        pathElement.style.strokeWidth = '1.65px';
-                        pathElement.style.setProperty('--tree-edge-width', '1.65px');
-                        pathElement.style.setProperty('--tree-edge-width-active', '1.95px');
-                        pathElement.style.setProperty('--tree-edge-width-passive', '1.65px');
+                        pathElement.style.strokeWidth = '2.15px';
+                        pathElement.style.setProperty('--tree-edge-width', '2.15px');
+                        pathElement.style.setProperty('--tree-edge-width-active', '2.45px');
+                        pathElement.style.setProperty('--tree-edge-width-passive', '2.15px');
                     });
             });
 
@@ -2226,7 +2258,7 @@ export function RootTreePanel({
             applyRadialEdgeHoverStyle(
                 `edge-${currentNode.parentId}-${currentNode.id}`,
                 1,
-                2.35,
+                2.9,
             );
             currentNode = nodesById.get(currentNode.parentId) ?? null;
         }
@@ -2637,6 +2669,7 @@ export function RootTreePanel({
                                             {shouldShowCanvasMinimap ? (
                                                 <CanvasMinimap
                                                     nodes={flowModel.flowNodes}
+                                                    edges={flowModel.flowEdges}
                                                     canvasContainerRef={treeCanvasRef}
                                                 />
                                             ) : null}
@@ -2702,6 +2735,7 @@ export function RootTreePanel({
                                             {shouldShowCanvasMinimap ? (
                                                 <CanvasMinimap
                                                     nodes={verticalFlowModel.flowNodes}
+                                                    edges={verticalFlowModel.flowEdges}
                                                     canvasContainerRef={treeVerticalRef}
                                                 />
                                             ) : null}
@@ -2763,6 +2797,7 @@ export function RootTreePanel({
                                             {shouldShowCanvasMinimap ? (
                                                 <CanvasMinimap
                                                     nodes={radialFlowModel.flowNodes}
+                                                    edges={radialFlowModel.flowEdges}
                                                     canvasContainerRef={treeRadialRef}
                                                 />
                                             ) : null}

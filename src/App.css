@@ -1333,7 +1333,8 @@ textarea {
 
 .tree-canvas__minimap {
   position: absolute !important;
-  right: 18px !important;
+  left: 18px !important;
+  right: auto !important;
   top: auto !important;
   bottom: 34px !important;
   z-index: 20 !important;
@@ -1372,21 +1373,28 @@ textarea {
   fill: rgba(8, 13, 25, 0.62);
 }
 
+.tree-canvas__minimap-edge {
+  stroke: rgba(147, 197, 253, 0.11);
+  stroke-width: 0.55;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
 .tree-canvas__minimap-node {
-  opacity: 0.82;
-  stroke-width: 1.1;
+  opacity: 0.86;
+  stroke-width: 0.9;
   vector-effect: non-scaling-stroke;
 }
 
 .tree-canvas__minimap-node.is-active {
   opacity: 1;
-  stroke-width: 1.8;
+  stroke-width: 1.5;
   filter: drop-shadow(0 0 5px rgba(191, 219, 254, 0.85));
 }
 
 .tree-canvas__minimap-node.is-search-match {
   opacity: 1;
-  stroke-width: 1.6;
+  stroke-width: 1.3;
   filter: drop-shadow(0 0 5px rgba(250, 204, 21, 0.68));
 }
 
@@ -1417,8 +1425,8 @@ textarea {
 }
 
 .tree-canvas .react-flow__edge-path {
-  stroke: var(--tree-edge-color, rgba(96, 165, 250, 0.58)) !important;
-  stroke-width: var(--tree-edge-width, 2.5px) !important;
+  stroke: var(--tree-edge-color, rgba(96, 165, 250, 0.78)) !important;
+  stroke-width: var(--tree-edge-width, 3.1px) !important;
   stroke-linecap: round;
   stroke-linejoin: round;
   transition:
@@ -1429,12 +1437,12 @@ textarea {
 
 .tree-canvas .react-flow__edge.is-active-connection .react-flow__edge-path {
   stroke: var(--tree-edge-color, rgba(147, 197, 253, 0.9)) !important;
-  stroke-width: var(--tree-edge-width-active, 3.2px) !important;
+  stroke-width: var(--tree-edge-width-active, 3.8px) !important;
 }
 
 .tree-canvas .react-flow__edge.is-passive-connection .react-flow__edge-path {
   stroke: var(--tree-edge-color, rgba(96, 165, 250, 0.26)) !important;
-  stroke-width: var(--tree-edge-width-passive, 2px) !important;
+  stroke-width: var(--tree-edge-width-passive, 2.5px) !important;
 }
 
 .tree-canvas .react-flow__edge.is-search-path-connection .react-flow__edge-path {

@@ -1386,7 +1386,7 @@ function getRadialBranchEdgeColor(
     if (branchIndex === undefined) {
         return isActiveConnection
             ? 'rgba(147, 197, 253, 0.92)'
-            : 'rgba(96, 165, 250, 0.48)';
+            : 'rgba(96, 165, 250, 0.7)';
     }
 
     const baseColor =
@@ -1395,8 +1395,8 @@ function getRadialBranchEdgeColor(
         ];
     const depthColor = getColorWithDepthLightness(baseColor, depth);
     const alpha = isActiveConnection
-        ? 0.88
-        : Math.max(0.28, 0.48 - Math.max(0, depth - 1) * 0.035);
+        ? 0.92
+        : Math.max(0.44, 0.7 - Math.max(0, depth - 1) * 0.04);
 
     return getRgbaColor(depthColor, alpha);
 }
@@ -1709,8 +1709,8 @@ export function buildVisualTree({
             : isHoverChildConnection
                 ? 2.15
                 : isHoverGrandchildConnection
-                    ? 1.85
-                    : 1.65;
+                    ? 2.35
+                    : 2.15;
         let radialSourceHandle: string | undefined;
         let radialTargetHandle: string | undefined;
 
@@ -1772,12 +1772,12 @@ export function buildVisualTree({
                 animated: false,
                 style: {
                     '--tree-edge-color': edgeColor,
-                    '--tree-edge-width': layoutDirection === 'radial' ? `${radialEdgeWidth}px` : '2.5px',
-                    '--tree-edge-width-active': layoutDirection === 'radial' ? `${Math.max(radialEdgeWidth, 1.95)}px` : '3.2px',
-                    '--tree-edge-width-passive': layoutDirection === 'radial' ? `${radialEdgeWidth}px` : '2px',
+                    '--tree-edge-width': layoutDirection === 'radial' ? `${radialEdgeWidth}px` : '3.1px',
+                    '--tree-edge-width-active': layoutDirection === 'radial' ? `${Math.max(radialEdgeWidth, 2.45)}px` : '3.8px',
+                    '--tree-edge-width-passive': layoutDirection === 'radial' ? `${radialEdgeWidth}px` : '2.5px',
                     opacity: edgeOpacity,
                     stroke: edgeColor,
-                    strokeWidth: layoutDirection === 'radial' ? radialEdgeWidth : 2.5,
+                    strokeWidth: layoutDirection === 'radial' ? radialEdgeWidth : 3.1,
                 } as Edge['style'],
                 markerEnd:
                     layoutDirection === 'radial'
