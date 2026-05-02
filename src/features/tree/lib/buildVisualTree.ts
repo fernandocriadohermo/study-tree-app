@@ -493,22 +493,67 @@ function getRadialLaneCount(layoutsAtDepth: RadialAngleLayout[]): number {
     );
 }
 
+function getRadialSiblingLaneIndex(
+    siblingIndex: number,
+    siblingCount: number,
+    laneCount: number,
+): number {
+    if (laneCount <= 1) {
+        return 0;
+    }
+
+    if (siblingCount <= 1) {
+        return Math.floor((laneCount - 1) / 2);
+    }
+
+    if (laneCount === 2) {
+        return siblingIndex % 2;
+    }
+
+    const laneOrder = [1, 0, 2];
+    return laneOrder[siblingIndex % laneOrder.length];
+}
+
 function assignRadialLaneOffsets(layoutsAtDepth: RadialAngleLayout[]): void {
     const laneCount = getRadialLaneCount(layoutsAtDepth);
     const sortedLayouts = [...layoutsAtDepth].sort((a, b) => {
         return normalizeRadialAngle(a.angle) - normalizeRadialAngle(b.angle);
     });
 
-    for (const [index, layout] of sortedLayouts.entries()) {
-        if (laneCount <= 1) {
-            layout.laneOffset = 0;
-            continue;
+    let siblingGroupStart = 0;
+
+    while (siblingGroupStart < sortedLayouts.length) {
+        const parentId = sortedLayouts[siblingGroupStart].node.parentId;
+        let siblingGroupEnd = siblingGroupStart + 1;
+
+        while (
+            siblingGroupEnd < sortedLayouts.length &&
+            sortedLayouts[siblingGroupEnd].node.parentId === parentId
+        ) {
+            siblingGroupEnd += 1;
         }
 
-        const laneIndex = index % laneCount;
-        layout.laneOffset =
-            (laneIndex - (laneCount - 1) / 2) *
-            RADIAL_TREE_DENSE_RING_LANE_GAP;
+        const siblingCount = siblingGroupEnd - siblingGroupStart;
+
+        for (let index = siblingGroupStart; index < siblingGroupEnd; index += 1) {
+            const layout = sortedLayouts[index];
+
+            if (laneCount <= 1) {
+                layout.laneOffset = 0;
+                continue;
+            }
+
+            const laneIndex = getRadialSiblingLaneIndex(
+                index - siblingGroupStart,
+                siblingCount,
+                laneCount,
+            );
+            layout.laneOffset =
+                (laneIndex - (laneCount - 1) / 2) *
+                RADIAL_TREE_DENSE_RING_LANE_GAP;
+        }
+
+        siblingGroupStart = siblingGroupEnd;
     }
 }
 
