@@ -3,9 +3,11 @@ import {
     Background,
     Controls,
     Handle,
+    Panel,
     Position,
     ReactFlow,
     useReactFlow,
+    useViewport,
     type Edge,
     type NodeProps,
     type Viewport,
@@ -57,6 +59,7 @@ interface RootTreePanelProps {
         panY: number,
         zoom: number,
     ) => Promise<void> | void;
+    isSidebarCollapsed?: boolean;
     onDetailsMaximizedChange?: (isMaximized: boolean) => void;
 }
 
@@ -71,6 +74,247 @@ const RADIAL_HANDLE_POSITIONS = [
 ];
 const RADIAL_HANDLE_OFFSETS = [25, 50, 75];
 const SEARCH_PREVIEW_RADIUS = 54;
+
+function getMinimapNodeColor(node: StudyTreeFlowNode): string {
+    if (node.data.isActive) {
+        return '#eff6ff';
+    }
+
+    if (node.data.isSearchMatch) {
+        return '#fde047';
+    }
+
+    switch (node.data.learningStatus) {
+        case 'dominado':
+            return '#6ee7b7';
+        case 'en_estudio':
+            return '#fbbf24';
+        case 'visto':
+            return '#93c5fd';
+        case 'sin_ver':
+        default:
+            return '#94a3b8';
+    }
+}
+
+function getMinimapNodeStrokeColor(node: StudyTreeFlowNode): string {
+    if (node.data.isActive) {
+        return '#eff6ff';
+    }
+
+    if (node.data.isSearchMatch) {
+        return '#fef08a';
+    }
+
+    return '#dbeafe';
+}
+
+interface CanvasMinimapProps {
+    nodes: StudyTreeFlowNode[];
+    canvasContainerRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function CanvasMinimap({ nodes, canvasContainerRef }: CanvasMinimapProps) {
+    const viewport = useViewport();
+    const { setCenter } = useReactFlow<StudyTreeFlowNode, Edge>();
+    const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
+    const width = 220;
+    const height = 142;
+    const padding = 12;
+
+    useEffect(() => {
+        const canvasElement = canvasContainerRef.current;
+
+        if (!canvasElement) {
+            return;
+        }
+
+        const updateCanvasSize = () => {
+            const rect = canvasElement.getBoundingClientRect();
+            setCanvasSize({
+                width: rect.width,
+                height: rect.height,
+            });
+        };
+
+        updateCanvasSize();
+
+        const resizeObserver = new ResizeObserver(updateCanvasSize);
+        resizeObserver.observe(canvasElement);
+
+        return () => {
+            resizeObserver.disconnect();
+        };
+    }, [canvasContainerRef]);
+
+    const nodeRects = useMemo(() => nodes.map((node) => {
+        const nodeWidth = node.data.layoutDirection === 'radial' && node.data.kindLabel === 'Raiz'
+            ? 320
+            : VISUAL_NODE_WIDTH;
+        const nodeHeight = node.data.layoutDirection === 'radial' && node.data.kindLabel === 'Raiz'
+            ? 152
+            : VISUAL_NODE_HEIGHT;
+
+        return {
+            node,
+            x: node.position.x,
+            y: node.position.y,
+            width: nodeWidth,
+            height: nodeHeight,
+        };
+    }), [nodes]);
+
+    const bounds = useMemo(() => {
+        if (nodeRects.length === 0) {
+            return null;
+        }
+
+        let minX = Number.POSITIVE_INFINITY;
+        let minY = Number.POSITIVE_INFINITY;
+        let maxX = Number.NEGATIVE_INFINITY;
+        let maxY = Number.NEGATIVE_INFINITY;
+
+        for (const rect of nodeRects) {
+            minX = Math.min(minX, rect.x);
+            minY = Math.min(minY, rect.y);
+            maxX = Math.max(maxX, rect.x + rect.width);
+            maxY = Math.max(maxY, rect.y + rect.height);
+        }
+
+        return {
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width: Math.max(1, maxX - minX),
+            height: Math.max(1, maxY - minY),
+        };
+    }, [nodeRects]);
+
+    if (!bounds) {
+        return null;
+    }
+
+    const innerWidth = width - padding * 2;
+    const innerHeight = height - padding * 2;
+    const uniformScale = Math.min(innerWidth / bounds.width, innerHeight / bounds.height);
+    const xScale = uniformScale;
+    const yScale = uniformScale;
+    const contentWidth = bounds.width * xScale;
+    const contentHeight = bounds.height * yScale;
+    const offsetX = padding + (width - padding * 2 - contentWidth) / 2;
+    const offsetY = padding + (height - padding * 2 - contentHeight) / 2;
+
+    const toMinimapX = (x: number) => offsetX + (x - bounds.minX) * xScale;
+    const toMinimapY = (y: number) => offsetY + (y - bounds.minY) * yScale;
+
+    const visibleFlowRect = canvasSize
+        ? {
+            x: -viewport.x / viewport.zoom,
+            y: -viewport.y / viewport.zoom,
+            width: canvasSize.width / viewport.zoom,
+            height: canvasSize.height / viewport.zoom,
+        }
+        : null;
+    const viewportMinimapRect = visibleFlowRect
+        ? (() => {
+            const rawWidth = visibleFlowRect.width * xScale;
+            const rawHeight = visibleFlowRect.height * yScale;
+            const rawX = toMinimapX(visibleFlowRect.x);
+            const rawY = toMinimapY(visibleFlowRect.y);
+            const minViewportSize = 10;
+            const widthAdjustment = Math.max(0, minViewportSize - rawWidth) / 2;
+            const heightAdjustment = Math.max(0, minViewportSize - rawHeight) / 2;
+
+            return {
+                x: rawX - widthAdjustment,
+                y: rawY - heightAdjustment,
+                width: Math.max(rawWidth, minViewportSize),
+                height: Math.max(rawHeight, minViewportSize),
+            };
+        })()
+        : null;
+    const viewportCenter = visibleFlowRect
+        ? {
+            x: toMinimapX(visibleFlowRect.x + visibleFlowRect.width / 2),
+            y: toMinimapY(visibleFlowRect.y + visibleFlowRect.height / 2),
+        }
+        : null;
+
+    const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+        const svgRect = event.currentTarget.getBoundingClientRect();
+        const minimapX = event.clientX - svgRect.left;
+        const minimapY = event.clientY - svgRect.top;
+        const flowX = (minimapX - offsetX) / xScale + bounds.minX;
+        const flowY = (minimapY - offsetY) / yScale + bounds.minY;
+
+        void setCenter(flowX, flowY, {
+            zoom: viewport.zoom,
+            duration: 160,
+        });
+    };
+
+    return (
+        <Panel
+            className="tree-canvas__minimap nodrag nopan"
+            position="bottom-right"
+            aria-label="Minimapa del arbol"
+        >
+            <svg
+                className="tree-canvas__minimap-svg"
+                viewBox={`0 0 ${width} ${height}`}
+                role="img"
+                onPointerDown={handlePointerDown}
+            >
+                <rect
+                    className="tree-canvas__minimap-bg"
+                    x="0"
+                    y="0"
+                    width={width}
+                    height={height}
+                    rx="12"
+                />
+
+                {nodeRects.map((rect) => {
+                    const centerX = toMinimapX(rect.x + rect.width / 2);
+                    const centerY = toMinimapY(rect.y + rect.height / 2);
+                    const radius = rect.node.data.isActive ? 3.6 : rect.node.data.isSearchMatch ? 3.2 : 2.1;
+
+                    return (
+                        <circle
+                            key={rect.node.id}
+                            className={`tree-canvas__minimap-node${rect.node.data.isActive ? ' is-active' : ''}${rect.node.data.isSearchMatch ? ' is-search-match' : ''}`}
+                            cx={centerX}
+                            cy={centerY}
+                            r={radius}
+                            fill={getMinimapNodeColor(rect.node)}
+                            stroke={getMinimapNodeStrokeColor(rect.node)}
+                        />
+                    );
+                })}
+
+                {viewportMinimapRect ? (
+                    <rect
+                        className="tree-canvas__minimap-viewport"
+                        x={viewportMinimapRect.x}
+                        y={viewportMinimapRect.y}
+                        width={viewportMinimapRect.width}
+                        height={viewportMinimapRect.height}
+                        rx="4"
+                    />
+                ) : null}
+                {viewportCenter ? (
+                    <circle
+                        className="tree-canvas__minimap-viewport-center"
+                        cx={viewportCenter.x}
+                        cy={viewportCenter.y}
+                        r="3.4"
+                    />
+                ) : null}
+            </svg>
+        </Panel>
+    );
+}
 
 function getRadialHandleStyle(position: Position, offset: number) {
     if (position === Position.Top || position === Position.Bottom) {
@@ -1066,6 +1310,7 @@ export function RootTreePanel({
     onRenameNode,
     onDeleteLeafNode,
     onCreateDocumentFromNode,
+    isSidebarCollapsed = false,
     onDetailsMaximizedChange,
 }: RootTreePanelProps) {
     const [draftTitle, setDraftTitle] = useState('');
@@ -1082,6 +1327,8 @@ export function RootTreePanel({
     const selectedContent = snapshot?.selectedNodeContent ?? null;
     const nodes = snapshot?.nodes ?? [];
     const nodeContents = snapshot?.nodeContents ?? [];
+    const shouldShowCanvasMinimap =
+        isSidebarCollapsed && isCanvasMaximized && treeViewMode !== 'outline';
 
     const nodesById = useMemo(() => {
         const nextMap = new Map<number, NodeDto>();
@@ -2387,6 +2634,12 @@ export function RootTreePanel({
                                                 />
                                             ) : null}
                                             <Background gap={24} size={1} />
+                                            {shouldShowCanvasMinimap ? (
+                                                <CanvasMinimap
+                                                    nodes={flowModel.flowNodes}
+                                                    canvasContainerRef={treeCanvasRef}
+                                                />
+                                            ) : null}
                                             <Controls
                                                 className="tree-canvas__zoom-controls"
                                                 showInteractive={false}
@@ -2446,6 +2699,12 @@ export function RootTreePanel({
                                                 />
                                             ) : null}
                                             <Background gap={24} size={1} />
+                                            {shouldShowCanvasMinimap ? (
+                                                <CanvasMinimap
+                                                    nodes={verticalFlowModel.flowNodes}
+                                                    canvasContainerRef={treeVerticalRef}
+                                                />
+                                            ) : null}
                                             <Controls
                                                 className="tree-canvas__zoom-controls"
                                                 showInteractive={false}
@@ -2501,6 +2760,12 @@ export function RootTreePanel({
                                                 />
                                             ) : null}
                                             <Background gap={24} size={1} />
+                                            {shouldShowCanvasMinimap ? (
+                                                <CanvasMinimap
+                                                    nodes={radialFlowModel.flowNodes}
+                                                    canvasContainerRef={treeRadialRef}
+                                                />
+                                            ) : null}
                                             <Controls
                                                 className="tree-canvas__zoom-controls"
                                                 showInteractive={false}

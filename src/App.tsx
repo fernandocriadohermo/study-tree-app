@@ -104,6 +104,7 @@ export default function App() {
           onCreateDocumentFromNode={createDocumentFromNode}
           isSavingViewport={isSavingViewport}
           onSaveViewport={saveViewport}
+          isSidebarCollapsed={isSidebarCollapsed}
           onDetailsMaximizedChange={setIsDetailsMaximized}
         />
       </main>
